@@ -13,17 +13,12 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   pcl_ros
 )
-
 find_package(OpenCV REQUIRED)
-
-
 find_package(PCL 1.7 REQUIRED)
-
 catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS cv_bridge image_transport roscpp sensor_msgs std_msgs visualization_msgs geometry_msgs pcl_ros
 )
-
 
 
 include_directories(
@@ -38,6 +33,6 @@ add_executable(kitti_node src/kitti_node.cpp src/data_utils.cpp src/ROI.cpp src/
 target_link_libraries(kitti_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
-  ${OpenCV_INCLUDE_DIRS}
+  ${OpenCV_LIBS}
 )
 

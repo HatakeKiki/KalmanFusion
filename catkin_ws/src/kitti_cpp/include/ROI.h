@@ -55,6 +55,14 @@
 
 #define STEP 0.2
 
+#define ANGLE_RESO 0.06
+#define POINT_NUM 2
+struct PointXYZIRT {
+    pcl::PointXYZI point;
+    float theta;
+    float radius;
+};
+typedef std::vector<PointXYZIRT> PointCloudXYZIRT;
 typedef std::string string;
 typedef Eigen::Matrix<double, 3, 3> Matrix3d;
 typedef Eigen::Matrix<double, 3, 4> Matrix34d;
