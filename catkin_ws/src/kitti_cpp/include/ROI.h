@@ -17,6 +17,7 @@
 #include <opencv2/highgui/highgui.hpp>
 
 #include "LinkList.hpp"
+#include "Detection.h"
 #include <pcl/point_cloud.h>
 
 
@@ -55,14 +56,7 @@
 
 #define STEP 0.2
 
-#define ANGLE_RESO 0.06
-#define POINT_NUM 2
-struct PointXYZIRT {
-    pcl::PointXYZI point;
-    float theta;
-    float radius;
-};
-typedef std::vector<PointXYZIRT> PointCloudXYZIRT;
+
 typedef std::string string;
 typedef Eigen::Matrix<double, 3, 3> Matrix3d;
 typedef Eigen::Matrix<double, 3, 4> Matrix34d;
@@ -154,7 +148,7 @@ public:
 void read_detection(const string base_dir, int frame, LinkList<detection_cam> detectFrame);
 void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame, 
               sensor_msgs::ImagePtr& img_msg, const Matrix34d pointTrans, 
-              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud);
+              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, ros::Publisher &box3d_pub);
 void clipFrustum(const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, 
                  pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud, 
                  const Matrix34d pointTrans, detection_cam detection);

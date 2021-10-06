@@ -16,7 +16,7 @@ const string f_imu2velo = "/calib_imu_to_velo.txt";
 *****************************************************/
 void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame, 
               sensor_msgs::ImagePtr& img_msg, const Matrix34d pointTrans, 
-              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud) {
+              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, ros::Publisher &box3d_pub) {
     string file_path = base_dir + det_dir + det_file_name;
     std::ifstream input_file(file_path.c_str(), std::ifstream::in);
     if(!input_file.is_open()) { std::cout << "Failed to open detection file." << std::endl;}
@@ -46,6 +46,9 @@ void read_det(const string base_dir, const int frame, LinkList<detection_cam>* p
                 if (fruCloud->points.size())
                     EuCluster(fruCloud, carCloud);
                 detection.CarCloud = *carCloud;
+
+                Lshape(carCloud, box3d_pub);
+
                 ptrDetectFrame->addItem(detection);
                 
                 double x1 = (detection.box[0] - detection.box[2] / 2) * IMG_LENGTH;

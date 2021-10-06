@@ -29,7 +29,7 @@ include_directories(
 link_directories(${PCL_LIBRARY_DIRS})
 link_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(kitti_node src/kitti_node.cpp src/data_utils.cpp src/ROI.cpp src/GroundRemove.cpp)
+add_executable(kitti_node src/kitti_node.cpp src/data_utils.cpp src/ROI.cpp src/GroundRemove.cpp src/Detection.cpp)
 target_link_libraries(kitti_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}

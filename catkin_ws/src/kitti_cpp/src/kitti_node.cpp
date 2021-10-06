@@ -18,7 +18,7 @@ int main(int argc, char ** argv) {
     //ros::Publisher ego_pub = n.advertise<visualization_msgs::Marker>("theta",10);
     //ros::Publisher imu_pub = n.advertise<sensor_msgs::Imu>("kitti_imu",10);
     //ros::Publisher gps_pub = n.advertise<sensor_msgs::NavSatFix>("kitti_gps",10);
-    //ros::Publisher box3d_pub = n.advertise<visualization_msgs::MarkerArray>("kitti_box3d",10);
+    ros::Publisher box3d_pub = n.advertise<visualization_msgs::Marker>("kitti_box3d",10);
     //ros::Publisher loca_pub = n.advertise<visualization_msgs::MarkerArray>("kitti_location",10);
     //ros::Publisher egoloca_pub = n.advertise<visualization_msgs::Marker>("kitti_ego_location",10);
 
@@ -33,16 +33,18 @@ int main(int argc, char ** argv) {
     ObjectList* ptrCarList = &carList;
 
     int frame = 0;
+
     while(ros::ok()) {
 	read_pcl(base_dir, frame, cloud);
 	read_img(base_dir, frame, img_msg);
+
 	GroundRemove groundOffCloud(cloud);
 	pcl::PointCloud<pcl::PointXYZI>::Ptr grCloud = groundOffCloud.ptrCloud;
 
         LinkList<detection_cam> detectPrev = detectFrame;
         ptrDetectFrame->Reset();
 
-	read_det(base_dir, frame, ptrDetectFrame, img_msg, pointTrans, grCloud);
+	read_det(base_dir, frame, ptrDetectFrame, img_msg, pointTrans, grCloud, box3d_pub);
         Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
 
 
@@ -50,77 +52,10 @@ int main(int argc, char ** argv) {
 	pcl::PointCloud<pcl::PointXYZI>::Ptr segCloud (new pcl::PointCloud<pcl::PointXYZI>);
         //clipFrustum(ptrDetectFrame, grCloud, fCloud, pointTrans);
 
-        PointCloudXYZIRT Sgroup;
-//if (frame == 0) {
+
         for(int j = 0; j < ptrDetectFrame->count(); j++) {
-            PointCloudXYZIRT Sgroup_;
             detection_cam detect = ptrDetectFrame->getItem(j);
-            pcl::PointCloud<pcl::PointXYZI>::Ptr ptrCloud (new pcl::PointCloud<pcl::PointXYZI>);
-            ptrCloud = detect.CarCloud.makeShared();
-            // add attributions of theta and radius
-
-            for (size_t i = 0; i < ptrCloud->points.size(); i++) {
-                PointXYZIRT Spoint;
-                Spoint.point = ptrCloud->points[i];
-                auto theta = (float)atan2(ptrCloud->points[i].y, ptrCloud->points[i].x) * 180 / M_PI;
-                if (theta < 0)
-                    theta += 360;
-                auto radius = sqrt(ptrCloud->points[i].x*ptrCloud->points[i].x + ptrCloud->points[i].y*ptrCloud->points[i].y);
-                Spoint.theta = theta;
-                Spoint.radius = radius;
-                Sgroup_.push_back(Spoint);
-            }
-            // sorting by ascending theta
-            std::sort(Sgroup_.begin(), Sgroup_.end(), [](const PointXYZIRT &a, const PointXYZIRT &b) { return a.theta < b.theta; });
-            std::cout << std::endl << "theta range: " << Sgroup_[0].theta << "\t" << Sgroup_[Sgroup_.size()-1].theta << std::endl; 
-
-            float theta = Sgroup_[0].theta;
-            float theta_sum = 0;
-            int num = 0;
-            PointCloudXYZIRT tmp;
-
-            for (size_t i = 0; i < Sgroup_.size(); i++) {
-                if (abs(Sgroup_[i].theta - theta) < ANGLE_RESO) {
-                    theta_sum += Sgroup_[i].theta;
-                    num++;
-                    theta = theta_sum/num;
-                    tmp.push_back(Sgroup_[i]);
-                    if (i == Sgroup_.size() - 1) {
-                        std::sort(tmp.begin(), tmp.end(), [](const PointXYZIRT &a, const PointXYZIRT &b){return a.radius < b.radius;});
-                        int j = 0;
-                        while (j < tmp.size() && j < POINT_NUM){
-                            Sgroup.push_back(tmp[j]);
-                            j++;
-                        } 
-                    }
-                } else {
-                    std::sort(tmp.begin(), tmp.end(), [](const PointXYZIRT &a, const PointXYZIRT &b){return a.radius < b.radius;});
-                    int j = 0;
-std::cout << std::endl;
-                    while (j < tmp.size() && j < POINT_NUM){
-                        Sgroup.push_back(tmp[j]);
-                        j++;
-std::cout << tmp[j].theta << "\t";
-                    } 
-std::cout << std::endl << "theta and num: " << theta << "\t" << num << "\t" << tmp.size() << std::endl;
- 
-                    tmp.clear();
-                    theta = Sgroup_[i].theta;
-                    theta_sum = theta;
-                    num = 1;
-                    tmp.push_back(Sgroup_[i]);
-                    if (i == Sgroup_.size() - 1) {
-                        std::sort(tmp.begin(), tmp.end(), [](const PointXYZIRT &a, const PointXYZIRT &b){return a.radius < b.radius;});
-                        int j = 0;
-                        while (j < tmp.size() && j < POINT_NUM){
-                            Sgroup.push_back(tmp[j]);
-                            j++;
-                        }
-                    }
-                }
-            }
-            for (size_t i = 0; i < Sgroup.size(); i++) {
-                segCloud->push_back(Sgroup[i].point);}
+            *segCloud += detect.CarCloud;
         }
 
 
