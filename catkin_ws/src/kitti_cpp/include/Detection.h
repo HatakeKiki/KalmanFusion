@@ -58,6 +58,20 @@ struct PointUV {
     double u;
     double v;
 };
+struct position {
+    float x;
+    float y;
+    float z;
+    // Euler angles
+    float psi;
+    float theta;
+    float phi;
+};
+struct dimension {
+    float length;
+    float width;
+    float height;
+};
 struct detection_cam {
     int frame;
     int id = 0;
@@ -65,6 +79,8 @@ struct detection_cam {
     std::string type;
     pcl::PointCloud<pcl::PointXYZI> PointCloud;
     pcl::PointCloud<pcl::PointXYZI> CarCloud;
+    dimension dim;
+    position pos;
 };
 struct PointXYZIRT {
     pcl::PointXYZI point;
@@ -112,19 +128,19 @@ public:
     void paramInput(calibTrans &calib);
     Matrix34d getPMatrix();
 };
-void read_detection(const string base_dir, int frame, LinkList<detection_cam> detectFrame);
-void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame, 
-              sensor_msgs::ImagePtr& img_msg, const Matrix34d pointTrans, 
-              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, ros::Publisher &box3d_pub);
+void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame,
+              const Matrix34d pointTrans, const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud);
 void clipFrustum(const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, 
                  pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud, 
                  const Matrix34d pointTrans, detection_cam detection);
 bool inFrustum(PointUV point, detection_cam detection);
 void EuCluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster);
-void Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCloud, ros::Publisher &box3d_pub, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup);
+void Lshape(detection_cam* ptr_det, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup);
 void Lproposal(const PointCloudXYZIRT Sgroup_, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup);
 float Lfit(const pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, Matrix41f &u);
 Matrix4f deltaMCompute(const pcl::PointXYZI point);
 void pointProjection(float &x, float &y, float k, float b);
-
+void publish_3d_box(detection_cam* ptr_detect, ros::Publisher &box3d_pub);
+void rotateZ(geometry_msgs::Point &p, float pos_x, float pos_y, float phi);
+void publish_2d_box(detection_cam* ptr_detect, sensor_msgs::ImagePtr& img_msg);
 #endif

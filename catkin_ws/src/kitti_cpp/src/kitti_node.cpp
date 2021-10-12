@@ -29,10 +29,12 @@ int main(int argc, char ** argv) {
     ProjectMatrix proMatrix(2);
     Matrix34d pointTrans = proMatrix.getPMatrix();
 
+
     LinkList<detection_cam> detectFrame(MAX_DETECT);
     LinkList<detection_cam>* ptrDetectFrame = &detectFrame;
     ObjectList carList(MAX_OBJECT);
     ObjectList* ptrCarList = &carList;
+
 
     int frame = 0;
 
@@ -46,12 +48,15 @@ int main(int argc, char ** argv) {
         LinkList<detection_cam> detectPrev = detectFrame;
         ptrDetectFrame->Reset();
         // Read 2d Bbox results and classification
-	read_det(base_dir, frame, ptrDetectFrame, img_msg, pointTrans, grCloud, box3d_pub);
+	read_det(base_dir, frame, ptrDetectFrame, pointTrans, grCloud);
         Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
         // 
 	pcl::PointCloud<pcl::PointXYZI>::Ptr segCloud (new pcl::PointCloud<pcl::PointXYZI>);
         for(int j = 0; j < ptrDetectFrame->count(); j++) {
             detection_cam detect = ptrDetectFrame->getItem(j);
+            detection_cam* ptr_detect = &detect;
+            publish_2d_box(ptr_detect, img_msg);
+            publish_3d_box(ptr_detect, box3d_pub);
             *segCloud += detect.CarCloud;
         }
 

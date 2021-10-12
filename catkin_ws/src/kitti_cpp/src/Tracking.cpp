@@ -35,11 +35,11 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 detection_cam* ptrDetectCurr = &detectCurr.getItem(flag);
                 ptrDetectCurr->id = ptrDetectPrev->id;
                 objectList->addTrack(ptrDetectCurr->id, *ptrDetectCurr);
-                //std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
+                std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
             } else {
                 // 未检出则从列表中删除该物体
                 objectList->delID(ptrDetectPrev->id);
-                //std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
+                std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
             }
             detectPrev.delItem(0);
             Hungaria(detectPrev, detectCurr, objectList);
@@ -57,7 +57,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                     newCar->addItem(tmp);
                 nextID++;
                 objectList->addItem(*newCar);
-                //std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
+                std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
                 delete newCar;
             }
         }

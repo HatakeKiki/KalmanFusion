@@ -15,18 +15,19 @@ static int marker_id = 0;
 *frame：指定帧数进行检测结果的读取
 *ptrDetectFrame：指向保存当前帧车辆检测结果的链表
 *****************************************************/
-void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame, 
-              sensor_msgs::ImagePtr& img_msg, const Matrix34d pointTrans, 
-              const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, ros::Publisher &box3d_pub) {
+void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame,
+              const Matrix34d pointTrans, const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud) {
     string file_path = base_dir + det_dir + det_file_name;
     std::ifstream input_file(file_path.c_str(), std::ifstream::in);
     if(!input_file.is_open()) { std::cout << "Failed to open detection file." << std::endl;}
     string line;
     int frame_read;
     // 将msg格式转化为cv::Mat 格式后，绘制检测框
+/*
     cv_bridge::CvImageConstPtr cv_ptr;
     cv_ptr=cv_bridge::toCvShare(img_msg, "bgr8");
     cv::Mat img = cv_ptr->image;
+*/
     while(getline(input_file, line)) {
         std::istringstream iss(line);
         iss >> frame_read;
@@ -43,23 +44,24 @@ void read_det(const string base_dir, const int frame, LinkList<detection_cam>* p
                 detection.PointCloud = *fruCloud;
                 if (fruCloud->points.size())
                     EuCluster(fruCloud, carCloud);
-                //detection.CarCloud = *carCloud;
+                detection.CarCloud = *carCloud;
+                detection_cam* ptr_det = &detection;
                 pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
-                Lshape(carCloud, box3d_pub, ptrSgroup);
-                detection.CarCloud = *ptrSgroup;
+                Lshape(ptr_det, ptrSgroup);
+                //detection.CarCloud = *ptrSgroup;
                 ptrDetectFrame->addItem(detection);
-                
+                /*
                 double x1 = (detection.box[0] - detection.box[2] / 2) * IMG_LENGTH;
                 double y1 = (detection.box[1] - detection.box[3] / 2) * IMG_WIDTH;
                 double x2 = (detection.box[0] + detection.box[2] / 2) * IMG_LENGTH;
                 double y2 = (detection.box[1] + detection.box[3] / 2) * IMG_WIDTH;
-                cv::rectangle(img, cv::Point(x1,y1), cv::Point(x2,y2), cv::Scalar(0,255,0), 4);
+                cv::rectangle(img, cv::Point(x1,y1), cv::Point(x2,y2), cv::Scalar(0,255,0), 4);*/
             }
         }
         else if(frame_read > frame)
             break;
     }
-    img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
+    //img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
     input_file.close();
 }
 /*****************************************************
@@ -362,9 +364,11 @@ void EuCluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, pcl::PointCloud<pc
 *输入：
 *ptrCloud: 语义分割后的车辆点云
 *****************************************************/
-void Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCloud, ros::Publisher &box3d_pub, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup) {
+void Lshape(detection_cam* ptr_det, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup) {
     // add attributions of theta and radius
     PointCloudXYZIRT Sgroup_;
+    pcl::PointCloud<pcl::PointXYZI>::Ptr ptrCloud(new pcl::PointCloud<pcl::PointXYZI>);
+    ptrCloud = ptr_det->CarCloud.makeShared();
 
     float z_min = 0;
     float z_max = -2;
@@ -433,49 +437,18 @@ void Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCloud, ros::Publisher &box3
 
             float x2 = x3 + (x1 - x0);
             float y2 = y3 + (y1 - y0);
-            corners_velo << x0, x1, x2, x3, x0, x1, x2, x3,
-                            y0, y1, y2, y3, y0, y1, y2, y3,
-                            z_min, z_min, z_min, z_min, z_max, z_max, z_max, z_max;
-            //visualization_msgs::MarkerArray marker_array;
-            //marker_array.markers.clear();
 
-            // 3d bounding box visulization
-        //std::cout << z_max-z_min << '\t' << width_max << '\t' << length_max << std::endl;
-            if ((length_max < 6) && (length_max > 0) && (width_max < 6) && (width_max > 0) && ((z_max-z_min) < 3)) {
+            ptr_det->dim.height = z_max - z_min;
+            ptr_det->dim.length = length_max;
+            ptr_det->dim.width = width_max;
 
-                visualization_msgs::Marker bbox_marker;
-                bbox_marker.header.frame_id = "map";
-                bbox_marker.header.stamp = ros::Time::now();
-                bbox_marker.ns = "";
-                bbox_marker.color.r = 0.0f;
-                bbox_marker.color.g = 1.0f;
-                bbox_marker.color.b = 0.0f;
-                bbox_marker.color.a = 1.0f;
-                bbox_marker.scale.x = 0.2f;
-                bbox_marker.lifetime = ros::Duration();
-                bbox_marker.frame_locked = true;
-                bbox_marker.type = visualization_msgs::Marker::LINE_LIST;
-                bbox_marker.pose.orientation.w = 1.0;
-                bbox_marker.action = visualization_msgs::Marker::ADD;
-                bbox_marker.id = marker_id;
+            ptr_det->pos.x = (x0 + x2)/2;
+            ptr_det->pos.y = (y0 + y2)/2;
+            ptr_det->pos.z = (z_max - z_min)/2 + z_min;
 
-                int lines_1[12] = {0,1,2,3,4,5,6,7,0,1,2,3};
-                int lines_2[12] = {1,2,3,0,5,6,7,4,4,5,6,7};
-                geometry_msgs::Point p_;
-                for (int i = 0; i < 12; i++) {
-                    p_.x = corners_velo(0,lines_1[i]);
-                    p_.y = corners_velo(1,lines_1[i]);
-                    p_.z = corners_velo(2,lines_1[i]);
-                    bbox_marker.points.push_back(p_);
-                    p_.x = corners_velo(0,lines_2[i]);
-                    p_.y = corners_velo(1,lines_2[i]);
-                    p_.z = corners_velo(2,lines_2[i]);
-                    bbox_marker.points.push_back(p_);
-                }
-                bbox_marker.lifetime = ros::Duration(0.8);
-                box3d_pub.publish(bbox_marker);
-                marker_id++;
-            }
+            ptr_det->pos.psi = 0;
+            ptr_det->pos.theta = 0;
+            ptr_det->pos.phi = atan((y1-y0)/(x1-x0));
         }
     }
     
@@ -607,9 +580,90 @@ void pointProjection(float &x, float &y, float k, float b) {
     x = (k*(y-b)+x)/(k*k+1);
     y = k*x+b;
 }
+/*****************************************************
+*功能：可视化三维检测结果
+*输入：
+*ptr_detect: 融合检测结果
+*box3d_pub: 用于发布可视化结果
+*****************************************************/
+void publish_3d_box(detection_cam* ptr_detect, ros::Publisher &box3d_pub) {
+    int r[8] = {255,255,255,0,0,  0,  0  ,255};
+    int g[8] = {0,  255,255,0,255,255,0  ,0};
+    int b[8] = {0,  0,  255,0,0,  255,255,255};
+    if ((ptr_detect->dim.length < 6) && (ptr_detect->dim.length > 0) 
+        && (ptr_detect->dim.width < 6) && (ptr_detect->dim.width > 0) 
+        && (ptr_detect->dim.height < 3)) {
+        visualization_msgs::Marker bbox_marker;
+        bbox_marker.header.frame_id = "map";
+        bbox_marker.header.stamp = ros::Time::now();
+        bbox_marker.ns = "";
+        bbox_marker.color.r = r[ptr_detect->id%8]/255;
+        bbox_marker.color.g = g[ptr_detect->id%8]/255;
+        bbox_marker.color.b = b[ptr_detect->id%8]/255;
+        bbox_marker.color.a = 1.0f;
+        bbox_marker.scale.x = 0.2f;
+        bbox_marker.frame_locked = true;
+        bbox_marker.type = visualization_msgs::Marker::LINE_LIST;
+        bbox_marker.pose.orientation.w = 1.0;
+        bbox_marker.action = visualization_msgs::Marker::ADD;
+        bbox_marker.id = marker_id;
 
-
-
+        int line1_x_sig[12] = {-1,-1,1,1,-1,-1,1,1,-1,-1,1,1};
+        int line1_y_sig[12] = {-1,1,1,-1,-1,1,1,-1,-1,1,1,-1};
+        int line2_x_sig[12] = {-1,1,1,-1,-1,1,1,-1,-1,-1,1,1};
+        int line2_y_sig[12] = {1,1,-1,-1,1,1,-1,-1,-1,1,1,-1};
+        int line1_z_sig[12] = {-1,-1,-1,-1,1,1,1,1,-1,-1,-1,-1};
+        int line2_z_sig[12] = {-1,-1,-1,-1,1,1,1,1,1,1,1,1};
+        geometry_msgs::Point p;
+        for (int i = 0; i < 12; i++) {
+            p.x = ptr_detect->pos.x + ptr_detect->dim.length/2*line1_x_sig[i];
+            p.y = ptr_detect->pos.y + ptr_detect->dim.width/2*line1_y_sig[i];
+            p.z = ptr_detect->pos.z + ptr_detect->dim.height/2*line1_z_sig[i];
+            rotateZ(p, ptr_detect->pos.x, ptr_detect->pos.y, ptr_detect->pos.phi);
+            bbox_marker.points.push_back(p);
+            p.x = ptr_detect->pos.x + ptr_detect->dim.length/2*line2_x_sig[i];
+            p.y = ptr_detect->pos.y + ptr_detect->dim.width/2*line2_y_sig[i];
+            p.z = ptr_detect->pos.z + ptr_detect->dim.height/2*line2_z_sig[i];
+            rotateZ(p, ptr_detect->pos.x, ptr_detect->pos.y, ptr_detect->pos.phi);
+            bbox_marker.points.push_back(p);
+        }
+        bbox_marker.lifetime = ros::Duration(0.8);
+        box3d_pub.publish(bbox_marker);
+        marker_id++;
+    }
+}
+/*****************************************************
+*功能：绕z轴的旋转矩阵
+*输入：
+*p: 用于旋转的点
+*phi：旋转角
+*****************************************************/
+void rotateZ(geometry_msgs::Point &p, float pos_x, float pos_y, float phi) {
+    float x = p.x;
+    float y = p.y;
+    p.x = (x-pos_x)*cos(phi) - (y-pos_y)*sin(phi) + pos_x;
+    p.y = (x-pos_x)*sin(phi) + (y-pos_y)*cos(phi) + pos_y;
+}
+/*****************************************************
+*功能：可视化图像二维检测结果
+*输入：
+*ptr_detect: 融合检测结果
+*img_msg: 将二维检测结果绘制在该图上
+*****************************************************/
+void publish_2d_box(detection_cam* ptr_detect, sensor_msgs::ImagePtr& img_msg) {
+    int r[8] = {255,255,255,0,0,  0,  0  ,255};
+    int g[8] = {0,  255,255,0,255,255,0  ,0};
+    int b[8] = {0,  0,  255,0,0,  255,255,255};
+    double x1 = (ptr_detect->box[0] - ptr_detect->box[2] / 2) * IMG_LENGTH;
+    double y1 = (ptr_detect->box[1] - ptr_detect->box[3] / 2) * IMG_WIDTH;
+    double x2 = (ptr_detect->box[0] + ptr_detect->box[2] / 2) * IMG_LENGTH;
+    double y2 = (ptr_detect->box[1] + ptr_detect->box[3] / 2) * IMG_WIDTH;
+    cv_bridge::CvImageConstPtr cv_ptr;
+    cv_ptr=cv_bridge::toCvShare(img_msg, "bgr8");
+    cv::Mat img = cv_ptr->image;
+    cv::rectangle(img, cv::Point(x1,y1), cv::Point(x2,y2), cv::Scalar(b[ptr_detect->id%8],g[ptr_detect->id%8],r[ptr_detect->id%8]), 4);
+    img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
+}
 
 
 
