@@ -1,5 +1,5 @@
 <launch>
     <!-- <node pkg="kitti_cpp" type="ground_rem_node" name="ground_rem_node" output="screen"/> -->
     <node pkg="sensor_fusion" type="sensor_fusion"      name="sensor_fusion"   output="screen"/>
-    <node pkg="rviz"      type="rviz"            name="rviz"            output="screen"    args="-d /home/kiki/KalmanFusion/catkin_ws/src/kitti_cpp/fusion_config.rviz"/>
+    <node pkg="rviz"      type="rviz"            name="rviz"            output="screen"    args="-d /home/kiki/KalmanFusion/catkin_ws/src/sensor_fusion/fusion_config.rviz"/>
 </launch>
