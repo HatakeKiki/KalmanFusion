@@ -58,10 +58,10 @@ void read_oxt(const int frame, sensor_msgs::Imu& imu,
         char tmp[600] = {0};
         for (int i = 0; i < line.length(); i++) tmp[i] = line[i];
         dynamics dym;
-        EulerAngles angle;
+        double roll, pitch, yaw;
         sscanf(tmp, "%lf %lf %lf %lf %lf %lf %f %f %f %f %f %f %f %f %lf %lf %lf %f %f %f %lf %lf %lf %f %f %c %d %d %d %d", 
         &gps.latitude, &gps.longitude, &gps.altitude,
-        &angle.roll, &angle.pitch, &angle.yaw,
+        &roll, &pitch, &yaw,
         &dym.vn, &dym.ve, &dym.vf, &dym.vl, &dym.vu, 
         &dym.ax, &dym.ay, &dym.az,
         &imu.angular_velocity.x, &imu.angular_velocity.y, &imu.angular_velocity.z, 
@@ -71,7 +71,7 @@ void read_oxt(const int frame, sensor_msgs::Imu& imu,
         &dym.posmode, &dym.velmode, &dym.orimode);
         //gps.position_covariance_type = COVARIANCE_TYPE_UNKNOWN;
         //EulertoQuaternion(angle, imu.orientation);
-        imu.orientation = tf::createQuaternionMsgFromRollPitchYaw(angle.roll, angle.pitch, angle.yaw);
+        imu.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, yaw);
         gps.header = header;
         imu.header = header;
 imu.header.stamp = ros::Time::now();
@@ -180,25 +180,5 @@ void strTime2unix(string UTC, ros::Time& ros_stamp) {
     stamp.tm_mon--;
  
     ros_stamp.sec = mktime(&stamp);
-}
-/*****************************************************
-*功能：欧拉旋转角转化为四元数
-*输入：
-*angles: 欧拉旋转角
-*q：四元数
-*****************************************************/
-void EulertoQuaternion(EulerAngles angles, geometry_msgs::Quaternion& q) {
-    // Abbreviations for the various angular functions
-    double cy = cos(angles.yaw * 0.5);
-    double sy = sin(angles.yaw * 0.5);
-    double cp = cos(angles.pitch * 0.5);
-    double sp = sin(angles.pitch * 0.5);
-    double cr = cos(angles.roll * 0.5);
-    double sr = sin(angles.roll * 0.5);
- 
-    q.w = cy * cp * cr + sy * sp * sr;
-    q.x = cy * cp * sr - sy * sp * cr;
-    q.y = sy * cp * sr + cy * sp * cr;
-    q.z = sy * cp * cr - cy * sp * sr;
 }
 

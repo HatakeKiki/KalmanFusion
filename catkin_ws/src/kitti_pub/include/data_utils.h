@@ -32,9 +32,6 @@ struct dynamics {
     float pos_accuracy, vel_accuracy;
     int numstats, posmode, velmode, orimode;
 };
-struct EulerAngles {
-    double roll, pitch, yaw;
-};
 typedef std::string string;
 
 void read_img(const int frame, sensor_msgs::ImagePtr& img_msg, std_msgs::Header header);
@@ -47,6 +44,5 @@ void publish_point_cloud(ros::Publisher &pcl_pub, pcl::PointCloud<pcl::PointXYZI
                          const std_msgs::Header header);
 string nameGenerate(const int frame, const string& suffix, const int length = NAME_LENGTH);
 void strTime2unix(string UTC, ros::Time& ros_stamp);
-void EulertoQuaternion(EulerAngles angles, geometry_msgs::Quaternion& q);
 #endif
 
