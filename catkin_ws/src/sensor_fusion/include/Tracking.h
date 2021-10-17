@@ -59,5 +59,5 @@ public:
 };
 
 void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detectCurr, ObjectList* objectList);
-double IoU(const detection_cam& prev, const detection_cam& curr);
+double IoU(const Box2d prev_box, const Box2d curr_box);
 #endif

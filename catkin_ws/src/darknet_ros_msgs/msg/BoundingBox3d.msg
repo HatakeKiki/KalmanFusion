@@ -1,0 +1,12 @@
+float64 probability
+float64 centerx
+float64 centery
+float64 centerz
+float64 length
+float64 width
+float64 height
+float64 psi
+float theta
+float phi
+int16 id
+string Class

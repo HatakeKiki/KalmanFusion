@@ -21,7 +21,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 detection_cam curr;
                 if (detectPrev.getItem(0, prev) && detectCurr.getItem(j, curr)) {
                     if(!curr.id) {
-                        double tmp = IoU(prev, curr);
+                        double tmp = IoU(prev.box, curr.box);
                         if (tmp >= maxIoU) {
                             maxIoU = tmp;
                             flag = j;
@@ -72,12 +72,22 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
 *输出：
 *IoU数值
 *****************************************************/
-double IoU(const detection_cam& prev, const detection_cam& curr) {
-    double len = (prev.box[2] + curr.box[2])/2 - std::abs(prev.box[0] - curr.box[0]);
-    double wid = (prev.box[3] + curr.box[3])/2 - std::abs(prev.box[1] - curr.box[1]);
+double IoU(const Box2d prev_box, const Box2d curr_box) {
+    double prev_center_x = (prev_box.xmax +  prev_box.xmin) / 2;
+    double prev_center_y = (prev_box.ymax +  prev_box.ymin) / 2;
+    double prev_length = prev_box.xmax -  prev_box.xmin;
+    double prev_width = prev_box.ymax -  prev_box.ymin;
+
+    double curr_center_x = (curr_box.xmax +  curr_box.xmin) / 2;
+    double curr_center_y = (curr_box.ymax +  curr_box.ymin) / 2;
+    double curr_length = curr_box.xmax -  curr_box.xmin;
+    double curr_width = curr_box.ymax -  curr_box.ymin;
+
+    double len = (prev_length + curr_length)/2 -  std::abs(prev_center_x - curr_center_x);
+    double wid = (prev_width + curr_width)/2 -  std::abs(prev_center_y - curr_center_y);
     if (len > 0 && wid > 0) {
         double inter = len * wid;
-        double union_ = prev.box[2] * prev.box[3] + curr.box[2] * curr.box[3] - inter;
+        double union_ = prev_length * prev_width + curr_length * curr_width - inter;
         return inter/union_;
     } else {
         return 0;

@@ -3,6 +3,7 @@
 const string base_dir = "/home/kiki/data/kitti/RawData/2011_09_26/2011_09_26_drive_0005_sync";
 const string img_dir = "/image_02/data/";
 const string oxt_dir = "/oxts/data/";
+const string det_dir = "/image_02/BoxInfo.txt";
 const string img_stp = "/image_02/timestamps.txt";
 const string pcl_stp = "/velodyne_points/timestamps.txt";
 const string oxt_stp = "/oxts/timestamps.txt";
@@ -51,7 +52,7 @@ void read_oxt(const int frame, sensor_msgs::Imu& imu,
               sensor_msgs::NavSatFix& gps, const std_msgs::Header header) {
     string oxt_path = base_dir + oxt_dir + nameGenerate(frame, "txt");
     std::ifstream oxt_file(oxt_path.c_str(), std::ifstream::in);
-    if(!oxt_file.is_open()) { std::cout << "Failed to open oxts file." << std::endl;}
+    if(!oxt_file.is_open()) PCL_ERROR ("Oxts File doesn't exist.");
     else {
         string line;
         getline(oxt_file, line);
@@ -74,8 +75,53 @@ void read_oxt(const int frame, sensor_msgs::Imu& imu,
         imu.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, yaw);
         gps.header = header;
         imu.header = header;
-imu.header.stamp = ros::Time::now();
     }
+}
+/*****************************************************
+*功能：读取图像识别二维检测结果
+*输入：
+*frame：指定帧数进行检测结果的读取
+*****************************************************/
+void read_det(const int frame, darknet_ros_msgs::BoundingBoxes& boundingBoxes_msg, 
+              const std_msgs::Header header) {
+    string file_path = base_dir + det_dir;
+    std::ifstream input_file(file_path.c_str(), std::ifstream::in);
+    if(!input_file.is_open()) PCL_ERROR ("Detection File doesn't exist.");
+    string line;
+    int frame_read;
+    int id = 0;
+    while(getline(input_file, line)) {
+        std::istringstream iss(line);
+        iss >> frame_read;
+        if (frame_read == frame) {
+            double box[BOX_LENGTH];
+            string type;
+            for (int a = 0; a < BOX_LENGTH; a++)
+                iss >> box[a];
+            iss >> type;
+            if (type == "car" || type == "truck") {
+                darknet_ros_msgs::BoundingBox boundingBox;
+                double xmin = (box[0] - box[2] / 2) * IMG_LENGTH;
+                double ymin = (box[1] - box[3] / 2) * IMG_WIDTH;
+                double xmax = (box[0] + box[2] / 2) * IMG_LENGTH;
+                double ymax = (box[1] + box[3] / 2) * IMG_WIDTH;
+                boundingBox.Class = type;
+                boundingBox.id = id;
+                boundingBox.probability = box[5];
+                boundingBox.xmin = xmin;
+                boundingBox.ymin = ymin;
+                boundingBox.xmax = xmax;
+                boundingBox.ymax = ymax;
+                boundingBoxes_msg.bounding_boxes.push_back(boundingBox);
+                id++;
+            }
+        }
+        else if(frame_read > frame)
+            break;
+    }
+    boundingBoxes_msg.header = header;
+    boundingBoxes_msg.image_header = header;
+    input_file.close();
 }
 /*****************************************************
 *功能：读取对应帧的时间并转换为unix时间戳
@@ -93,7 +139,7 @@ void read_stp(const int frame, std_msgs::Header& header, int type) {
     }
     int count_skip = frame + 1;
     std::ifstream stp_file(stp_path.c_str(), std::ifstream::in);
-    if(!stp_file.is_open()) { std::cout << "Failed to open timestamp file." << std::endl;}
+    if(!stp_file.is_open()) PCL_ERROR ("Timestamp File doesn't exist.");
     else {
         string UTC = "";
         while (count_skip--) getline(stp_file, UTC);
@@ -128,7 +174,7 @@ void kittiBin2Pcd(string &in_file, string& out_file)
     // 读取二进制文件
     std::fstream input(in_file.c_str(), std::ios::in | std::ios::binary);
     if(!input.good()){
-        std::cerr << "Could not read file: " << in_file << std::endl;
+        PCL_ERROR ("Couldn't read binary files of pointcloud.");
         exit(EXIT_FAILURE);
     }
     // 定位到开始

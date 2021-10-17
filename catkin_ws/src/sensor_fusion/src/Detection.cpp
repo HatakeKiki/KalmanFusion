@@ -1,68 +1,35 @@
 #include "Detection.h"
 
-const string det_dir = "/image_02/data/";
-const string det_file_name = "BoxInfo.txt";
-const string cal_dir = "/home/kiki/data/kitti/RawData/2011_09_26";
-const string f_cam2cam = "/calib_cam_to_cam.txt";
-const string f_velo2cam = "/calib_velo_to_cam.txt";
-const string f_imu2velo = "/calib_imu_to_velo.txt";
 
 static int marker_id = 0;
 /*****************************************************
-*功能：读取图像识别二维检测结果，保存并显示车辆的检测结果
+*功能：提取当前帧物体的有效数据与信息
 *输入：
 *base_dir: data存储的基本目录
 *frame：指定帧数进行检测结果的读取
 *ptrDetectFrame：指向保存当前帧车辆检测结果的链表
 *****************************************************/
-void read_det(const string base_dir, const int frame, LinkList<detection_cam>* ptrDetectFrame,
-              const Matrix34d pointTrans, const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud) {
-    string file_path = base_dir + det_dir + det_file_name;
-    std::ifstream input_file(file_path.c_str(), std::ifstream::in);
-    if(!input_file.is_open()) { std::cout << "Failed to open detection file." << std::endl;}
-    string line;
-    int frame_read;
-    // 将msg格式转化为cv::Mat 格式后，绘制检测框
-/*
-    cv_bridge::CvImageConstPtr cv_ptr;
-    cv_ptr=cv_bridge::toCvShare(img_msg, "bgr8");
-    cv::Mat img = cv_ptr->image;
-*/
-    while(getline(input_file, line)) {
-        std::istringstream iss(line);
-        iss >> frame_read;
-        if (frame_read == frame) {
-            detection_cam detection;
-            detection.frame = frame_read;
-            for (int a = 0; a < BOX_LENGTH; a++)
-                iss >> detection.box[a];
-            iss >> detection.type;
-            if (detection.type == "car" || detection.type == "truck") {
-                pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud(new pcl::PointCloud<pcl::PointXYZI>);
-                pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud(new pcl::PointCloud<pcl::PointXYZI>);
-                clipFrustum(inCloud, fruCloud, pointTrans, detection);
-                detection.PointCloud = *fruCloud;
-                if (fruCloud->points.size())
-                    EuCluster(fruCloud, carCloud);
-                detection.CarCloud = *carCloud;
-                detection_cam* ptr_det = &detection;
-                pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
-                Lshape(ptr_det, ptrSgroup);
-                //detection.CarCloud = *ptrSgroup;
-                ptrDetectFrame->addItem(detection);
-                /*
-                double x1 = (detection.box[0] - detection.box[2] / 2) * IMG_LENGTH;
-                double y1 = (detection.box[1] - detection.box[3] / 2) * IMG_WIDTH;
-                double x2 = (detection.box[0] + detection.box[2] / 2) * IMG_LENGTH;
-                double y2 = (detection.box[1] + detection.box[3] / 2) * IMG_WIDTH;
-                cv::rectangle(img, cv::Point(x1,y1), cv::Point(x2,y2), cv::Scalar(0,255,0), 4);*/
-            }
-        }
-        else if(frame_read > frame)
-            break;
+void objInfo(const Matrix34d pointTrans, LinkList<detection_cam>* ptrDetectFrame, 
+             const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, 
+             const darknet_ros_msgs::BoundingBoxes::ConstPtr& BBoxes_msg) {
+    Boxes2d BBoxes_vec = BBoxes_msg->bounding_boxes;
+    for(std::vector<darknet_ros_msgs::BoundingBox>::iterator it = BBoxes_vec.begin();
+        it != BBoxes_vec.end(); ++it) {
+        detection_cam detection;
+        detection_cam* ptr_det = &detection;
+        ptr_det->box = *it;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud(new pcl::PointCloud<pcl::PointXYZI>);
+        pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud(new pcl::PointCloud<pcl::PointXYZI>);
+        clipFrustum(inCloud, fruCloud, pointTrans, ptr_det);
+        ptr_det->PointCloud = *fruCloud;
+        if (fruCloud->points.size())
+            EuCluster(fruCloud, carCloud);
+        ptr_det->CarCloud = *carCloud;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
+        Lshape(ptr_det, ptrSgroup);
+        //detection.CarCloud = *ptrSgroup;
+        ptrDetectFrame->addItem(*ptr_det);
     }
-    //img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
-    input_file.close();
 }
 /*****************************************************
 *功能：判断点云是否在检测框内,并加入链表
@@ -73,7 +40,7 @@ void read_det(const string base_dir, const int frame, LinkList<detection_cam>* p
 *****************************************************/
 void clipFrustum(const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud, 
                  pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud, 
-                 const Matrix34d pointTrans, detection_cam detection) {
+                 const Matrix34d pointTrans, detection_cam* detection) {
     pcl::PointIndices indices;
 #pragma omp for
     for (size_t i = 0; i < inCloud->points.size(); i++) {
@@ -87,7 +54,7 @@ void clipFrustum(const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud,
             Eigen::Matrix<double, 3, 1> pointPic = pointTrans * point3D;
             PointUV point = {pointPic(0,0)/pointPic(2,0), pointPic(1,0)/pointPic(2,0)};
             // check whether the point is in the detection
-            if(inFrustum(point, detection))
+            if(inFrustum(point, detection->box))
                 indices.indices.push_back(i);
         }
     }
@@ -104,223 +71,14 @@ void clipFrustum(const pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud,
 *in: 输入的点云
 *out: 输出的点云
 *****************************************************/
-bool inFrustum(PointUV point, detection_cam detection) {
-    double x1 = (detection.box[0] - detection.box[2] / 2) * IMG_LENGTH;
-    double y1 = (detection.box[1] - detection.box[3] / 2) * IMG_WIDTH;
-    double x2 = (detection.box[0] + detection.box[2] / 2) * IMG_LENGTH;
-    double y2 = (detection.box[1] + detection.box[3] / 2) * IMG_WIDTH;
-
+bool inFrustum(const PointUV point, const Box2d box) {
     double u = point.u;
     double v = point.v;
-    if (u >= x1 && u <=x2 && v >= y1 && v <= y2)
+    if (u >= box.xmin && u <= box.xmax && v >= box.ymin && v <= box.ymax)
         return true;
     else
         return false;
 }
-
-
-
-/*****************************************************
-*功能：读取相机00到另一个相机的坐标转换矩阵
-*输入：
-*calib: 存存储校准结果的结构
-*calib_type: 0-raw相机参数 1-rectified相机参数 2-激光雷达外参
-*cam_index: 另一个矩阵的编号
-*****************************************************/
-ProjectMatrix::ProjectMatrix(int cam_index) : camIndex(cam_index) {
-    locate(LIDAR);
-    paramInput(calib_velo);
-    locate(CAM_RECT, camIndex);
-    paramInput(calib_cam_rect);
-    locate(CAM_RECT);
-    paramInput(calib_cam_rect00);
-
-    Matrix4d T_velo = Matrix4d::Zero();
-    Matrix4d R_cam00  = Matrix4d::Zero();
-    for (int a = 0; a < 3; a++)
-        for (int b = 0; b < 3; b++)
-	    T_velo(a,b) = calib_velo.R(a,b);
-    T_velo(0,3) = calib_velo.T[0];
-    T_velo(1,3) = calib_velo.T[1];
-    T_velo(2,3) = calib_velo.T[2];
-    T_velo(3,3) = 1;
-    for (int a = 0; a < 3; a++)
-        for (int b = 0; b < 3; b++)
-	    R_cam00(a,b) = calib_cam_rect00.R(a,b);
-    R_cam00(3,3) = 1;
-    pointTrans = calib_cam_rect.P * R_cam00 * T_velo;
-    
-    //std::cout << calib_cam_rect.P << std::endl << std::endl;
-    //std::cout << R_cam00 << std::endl << std::endl;
-    //std::cout << T_velo << std::endl << std::endl;
-    //std::cout << pointTrans << std::endl;
-}
-
-ProjectMatrix::~ProjectMatrix() {}
-/*****************************************************
-*功能：定位数据的位置
-*输入：
-*calibType: 0-raw相机参数 1-rectified相机参数 2-激光雷达外参
-*cam_index: 相机的编号
-*****************************************************/
-void ProjectMatrix::locate(int calibType, int cam_index) {
-// 根据校准类型，选择校准文件并定位到文档相应内容
-    switch (calibType) {
-        case 0 :
-            input_file_name = cal_dir + f_cam2cam;
-            skip = cam_index*(CAM_RAW_PARAM+CAM_RECT_PARAM)+2;
-            params = CAM_RAW_PARAM;
-            break;
-        case 1 :
-            input_file_name = cal_dir + f_cam2cam;
-            skip = cam_index*(CAM_RAW_PARAM+CAM_RECT_PARAM)+2+CAM_RAW_PARAM;
-            params = CAM_RECT_PARAM;
-            break;
-        case 2 :
-            input_file_name = cal_dir + f_velo2cam;
-            skip = 1;
-            params = VELO_PARAM;
-            break;
-        default :
-            std::cout << "Invalid calibration type." << std::endl;
-    }
-}
-
-/*****************************************************
-*功能：读取未处理的相机校准结果
-*输入：
-*calib: 存存储校准结果的结构
-*****************************************************/
-void ProjectMatrix::paramInput(calibCamRaw &calib) {
-    //std::cout << "Raw." << skip << '\t' << params << std::endl;
-    std::ifstream input_file(input_file_name.c_str(), std::ifstream::in);
-    if(!input_file.is_open()) {std::cout << "Failed to open file. "  << std::endl;}
-    // 开始读取参数
-    string line;
-    for (int i = 0; i < skip; i++)
-        getline(input_file, line);
-    for (int i = 0; i < params; i++) {
-        std::stringstream iss;
-        string data_type;
-        getline(input_file, line);
-        iss << line;
-        iss >> data_type;
-        switch(data_type[0]) {
-            case 'S' :
-                iss >> calib.S[0];
-                iss >> calib.S[1];
-                break;
-            case 'K' :
-                for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 3; b++)
-                        iss >> calib.K(a, b);
-                break;
-            case 'D' :
-                for (int a = 0; a < 5; a++)
-                    iss >> calib.D[a];
-                break;
-            case 'R' :
-                for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 3; b++)
-                        iss >> calib.R(a,b);
-                break;
-            case 'T' :
-                iss >> calib.T[0];
-                iss >> calib.T[1];
-                iss >> calib.T[2];
-                break;
-            default : 
-                std::cout << "Invalid parameter." << std::endl;
-        }
-    }
-    input_file.close();
-}
-
-/*****************************************************
-*功能：读取处理后的相机校准结果
-*输入：
-*calib: 存存储校准结果的结构
-*****************************************************/
-void ProjectMatrix::paramInput(calibCamRect &calib) {
-    //std::cout << "caliCamRect." << skip << '\t' << params << std::endl;
-    std::ifstream input_file(input_file_name.c_str(), std::ifstream::in);
-    if(!input_file.is_open()) {std::cout << "Failed to open file. "  << std::endl;}
-    // 开始读取参数
-    string line;
-    for (int i = 0; i < skip; i++)
-        getline(input_file, line);
-    for (int i = 0; i < params; i++) {
-        std::stringstream iss;
-        string data_type;
-        getline(input_file, line);
-        iss << line;
-        iss >> data_type;
-        switch(data_type[0]) {
-            case 'S' :
-                iss >> calib.S[0];
-                iss >> calib.S[1];
-                break;
-            case 'R' :
-                for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 3; b++)
-                        iss >> calib.R(a,b);
-                break;
-            case 'P' :
-                for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 4; b++) 
-                        iss >> calib.P(a, b);
-                break;
-            default : 
-                std::cout << "Invalid parameter." << std::endl;
-        }
-    }
-    input_file.close();
-}
-
-/*****************************************************
-*功能：读取激光雷达到相机的校准结果
-*输入：
-*calib: 存储校准结果的结构
-*****************************************************/
-void ProjectMatrix::paramInput(calibTrans &calib) {
-    //std::cout << "cali_velo." << skip << '\t' << params << std::endl;
-    std::ifstream input_file(input_file_name.c_str(), std::ifstream::in);
-    if(!input_file.is_open()) {std::cout << "Failed to open file. "  << std::endl;}
-    // 开始读取参数
-    string line;
-    for (int i = 0; i < skip; i++)
-        getline(input_file, line);
-    for (int i = 0; i < params; i++) {
-        std::stringstream iss;
-        string data_type;
-        getline(input_file, line);
-        iss << line;
-        iss >> data_type;
-        switch(data_type[0]) {
-            case 'R' :
-                for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 3; b++)
-                        iss >> calib.R(a,b);
-                break;
-            case 'T' :
-                iss >> calib.T[0];
-                iss >> calib.T[1];
-                iss >> calib.T[2];
-                break;
-            default : 
-                std::cout << "Invalid parameter." << std::endl;
-        }
-    }
-    input_file.close();
-}
-
-/*****************************************************
-*功能：获取投影矩阵
-*****************************************************/
-Matrix34d ProjectMatrix::getPMatrix() {
-    return pointTrans;
-}
-
 /*****************************************************
 *功能：欧几里得聚类，输出最大的点云聚类结果
 *输入: 
@@ -348,7 +106,6 @@ void EuCluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, pcl::PointCloud<pc
     ec.setSearchMethod (tree);
     ec.setInputCloud (bev_cloud);
     ec.extract (cluster_indices);
-
 
     std::vector<pcl::PointIndices>::const_iterator max_size_indices = cluster_indices.begin();
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
@@ -650,21 +407,22 @@ void rotateZ(geometry_msgs::Point &p, float pos_x, float pos_y, float phi) {
 *ptr_detect: 融合检测结果
 *img_msg: 将二维检测结果绘制在该图上
 *****************************************************/
-void publish_2d_box(detection_cam* ptr_detect, sensor_msgs::ImagePtr& img_msg) {
+void publish_2d_box(const sensor_msgs::ImageConstPtr& img_in,
+                    sensor_msgs::ImagePtr& img_out, LinkList<detection_cam>* ptrDetectFrame) {
     int r[8] = {255,255,255,0,0,  0,  0  ,255};
     int g[8] = {0,  255,255,0,255,255,0  ,0};
     int b[8] = {0,  0,  255,0,0,  255,255,255};
-    double x1 = (ptr_detect->box[0] - ptr_detect->box[2] / 2) * IMG_LENGTH;
-    double y1 = (ptr_detect->box[1] - ptr_detect->box[3] / 2) * IMG_WIDTH;
-    double x2 = (ptr_detect->box[0] + ptr_detect->box[2] / 2) * IMG_LENGTH;
-    double y2 = (ptr_detect->box[1] + ptr_detect->box[3] / 2) * IMG_WIDTH;
     cv_bridge::CvImageConstPtr cv_ptr;
-    cv_ptr=cv_bridge::toCvShare(img_msg, "bgr8");
-    cv::Mat img = cv_ptr->image;
-    cv::rectangle(img, cv::Point(x1,y1), cv::Point(x2,y2), cv::Scalar(b[ptr_detect->id%8],g[ptr_detect->id%8],r[ptr_detect->id%8]), 4);
-    img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
+    cv_ptr = cv_bridge::toCvCopy(img_in, "bgr8");
+    for (int i = 0; i < ptrDetectFrame->count(); i++) {
+        detection_cam detect = ptrDetectFrame->getItem(i);
+        Box2d box = detect.box;
+        int id = detect.id;
+        cv::rectangle(cv_ptr->image, cv::Point(box.xmin,box.ymin), 
+                      cv::Point(box.xmax,box.ymax), cv::Scalar(b[id%8],g[id%8],r[id%8]), 4);
+    }
+    img_out = cv_bridge::CvImage(img_in->header, "bgr8", cv_ptr->image).toImageMsg();
 }
-
 
 
 

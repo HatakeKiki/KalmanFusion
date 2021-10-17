@@ -1,8 +1,9 @@
 
 {
-	gnome-terminal -- bash -c "cd ./src/kitti_pub; ./kitti_compile.sh" 
+	
+	gnome-terminal -- bash -c "source devel/setup.bash; roslaunch kitti_pub kitti.launch" 
 }&
 sleep 2s
 {
-	gnome-terminal -- bash -c "cd ./src/darknet_ros; ./darknet_compile.sh" 
+	gnome-terminal -- bash -c "source devel/setup.bash; roslaunch sensor_fusion fusion.launch" 
 }

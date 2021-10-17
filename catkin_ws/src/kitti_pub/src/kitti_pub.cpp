@@ -1,9 +1,5 @@
 #include "data_utils.h"
-#include <ros/ros.h>
-
 #define FRAME_MAX 154
-
-
 
 int main(int argc, char ** argv) {
     int frame = 0;
@@ -14,8 +10,9 @@ int main(int argc, char ** argv) {
     // Initialize publishers
     ros::Publisher img_pub = n.advertise<sensor_msgs::Image>("kitti_cam02",1);
     ros::Publisher pcl_pub = n.advertise<sensor_msgs::PointCloud2>("kitti_points",1);
-    ros::Publisher imu_pub = n.advertise<sensor_msgs::Imu>("kitti_imu",10);
-    ros::Publisher gps_pub = n.advertise<sensor_msgs::NavSatFix>("kitti_gps",10);
+    ros::Publisher imu_pub = n.advertise<sensor_msgs::Imu>("kitti_imu",1);
+    ros::Publisher gps_pub = n.advertise<sensor_msgs::NavSatFix>("kitti_gps",1);
+    ros::Publisher box2d_pub = n.advertise<darknet_ros_msgs::BoundingBoxes>("yolo_det",1);
 
     while(ros::ok()) {
         // Ptr to PointCloud and Image
@@ -23,6 +20,7 @@ int main(int argc, char ** argv) {
         sensor_msgs::ImagePtr img_msg;
         sensor_msgs::Imu imu_msg;
         sensor_msgs::NavSatFix gps_msg;
+        darknet_ros_msgs::BoundingBoxes bBoxes_msg;
 
         std_msgs::Header header_img;
         std_msgs::Header header_pcl;
@@ -35,10 +33,12 @@ int main(int argc, char ** argv) {
 	read_pcl(frame, cloud);
 	read_img(frame, img_msg, header_img);
 	read_oxt(frame, imu_msg, gps_msg, header_oxt);
+        read_det(frame, bBoxes_msg, header_img);
 
 	img_pub.publish(*img_msg);
 	imu_pub.publish(imu_msg);
 	gps_pub.publish(gps_msg);
+	box2d_pub.publish(bBoxes_msg);
 	publish_point_cloud(pcl_pub, cloud, header_pcl);
 
 	frame += 1;

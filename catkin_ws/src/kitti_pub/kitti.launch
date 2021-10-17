@@ -1,5 +1,5 @@
 <launch>
     <!-- <node pkg="kitti_cpp" type="ground_rem_node" name="ground_rem_node" output="screen"/> -->
     <node pkg="kitti_pub" type="kitti_pub"      name="kitti_pub"   output="screen"/>
-    <node pkg="rviz"      type="rviz"            name="rviz"            output="screen"    args="-d /home/kiki/KalmanFusion/catkin_ws/src/kitti_pub/kitti_pub_config.rviz"/>
+    <!-- <node pkg="rviz"      type="rviz"            name="rviz"            output="screen"    args="-d /home/kiki/KalmanFusion/catkin_ws/src/kitti_pub/kitti_pub_config.rviz"/> -->
 </launch>

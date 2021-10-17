@@ -17,14 +17,21 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/NavSatFix.h>
-#include <geometry_msgs/Quaternion.h>
 #include <tf/transform_datatypes.h>
 
+#include "darknet_ros_msgs/BoundingBox.h"
+#include "darknet_ros_msgs/BoundingBoxes.h"
+#include "darknet_ros_msgs/ObjectCount.h"
 
 #define NAME_LENGTH 10
+// Timestamp in different files
 #define IMAGE 0
 #define LIDAR 1
 #define OXTS_ 2
+// Calculation of 2d-box
+#define IMG_LENGTH 1242
+#define IMG_WIDTH 375
+#define BOX_LENGTH 7
 struct dynamics {
     float vn, ve, vf, vl, vu;
     float ax, ay, az;
@@ -37,6 +44,8 @@ typedef std::string string;
 void read_img(const int frame, sensor_msgs::ImagePtr& img_msg, std_msgs::Header header);
 void read_oxt(const int frame, sensor_msgs::Imu& imu, 
               sensor_msgs::NavSatFix& gps, const std_msgs::Header header);
+void read_det(const int frame, darknet_ros_msgs::BoundingBoxes& boundingBoxes_msg, 
+              const std_msgs::Header header);
 void read_pcl(const int frame, pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud);
 void read_stp(const int frame, std_msgs::Header& header, const int type);
 void kittiBin2Pcd(string &in_file, string& out_file);
