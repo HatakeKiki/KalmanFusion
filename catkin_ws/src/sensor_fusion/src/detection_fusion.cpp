@@ -20,13 +20,13 @@ bool detection_fusion::Is_initialized() {return is_initialized;};
 *in_cloud_: 对应帧原始点云
 *****************************************************/
 void detection_fusion::Initialize(const Matrix34d point_projection_matrix_, 
-                                  LinkList<detection_cam>* ptrDetectFrame_, 
+                                  LinkList<detection_cam> &DetectFrame, 
                                   const darknet_ros_msgs::BoundingBoxes::ConstPtr& BBoxes_msg,
                                   pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_) {
     point_projection_matrix = point_projection_matrix_;
     boxes2d = BBoxes_msg->bounding_boxes;
     inCloud = in_cloud_->makeShared();
-    *ptrDetectFrame = *ptrDetectFrame_;
+    ptrDetectFrame = &DetectFrame;
     is_initialized = true;
 }
 /*****************************************************
@@ -49,6 +49,7 @@ void detection_fusion::extract_feature() {
         Lshape(ptr_det, ptrSgroup);
         ptrDetectFrame->addItem(*ptr_det);
     }
+std::cout << "in class " << ptrDetectFrame->count() << std::endl;
 }
 /*****************************************************
 *功能：根据二维结果剪切点云

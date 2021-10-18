@@ -91,7 +91,7 @@ public:
     detection_fusion();
     ~detection_fusion();
     void Initialize(const Matrix34d point_projection_matrix_, 
-                    LinkList<detection_cam>* ptrDetectFrame_, 
+                    LinkList<detection_cam> &DetectFrame, 
                     const darknet_ros_msgs::BoundingBoxes::ConstPtr& BBoxes_msg,
                     pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_);
     bool Is_initialized();
