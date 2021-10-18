@@ -1,7 +1,7 @@
 #ifndef TRACKING_H
 #define TRACKING_H
 #include "LinkList.hpp"
-#include "Detection.h"
+#include "detection_fusion.h"
 #include <Eigen/Eigen>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>

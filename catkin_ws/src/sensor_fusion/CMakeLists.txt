@@ -37,7 +37,7 @@ include_directories(
 link_directories(${PCL_LIBRARY_DIRS})
 # link_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(sensor_fusion src/sensor_fusion.cpp src/GroundRemove.cpp src/Detection.cpp src/Tracking.cpp)
+add_executable(sensor_fusion src/sensor_fusion.cpp src/GroundRemove.cpp src/detection_fusion.cpp src/Tracking.cpp)
 target_link_libraries(sensor_fusion
   ${catkin_LIBRARIES}
 #  ${PCL_LIBRARIES}

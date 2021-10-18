@@ -23,19 +23,22 @@ void CallBack(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     GroundRemove groundOffCloud(cloud);
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr segCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    publish_point_cloud(pcl_pub, segCloud);
+    // publish_point_cloud(pcl_pub, groundOffCloud.ptrCloud);
+    // Store object-relevant infomation into THE LIST
+    LinkList<detection_cam> detectPrev = *ptrDetectFrame;
+    ptrDetectFrame->Reset();
+    detection_fusion detection;
+    detection.Initialize(pointTrans, ptrDetectFrame, det_msg, groundOffCloud.ptrCloud);
+    if (detection.Is_initialized()) detection.extract_feature();
+    // objInfo(pointTrans, ptrDetectFrame, groundOffCloud.ptrCloud, det_msg);
+    Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
     for(int j = 0; j < ptrDetectFrame->count(); j++) {
         detection_cam detect = ptrDetectFrame->getItem(j);
         detection_cam* ptr_detect = &detect;
         //publish_3d_box(ptr_detect, box3d_pub);
         *segCloud += detect.CarCloud;
     }
-    publish_point_cloud(pcl_pub, segCloud);
-    // publish_point_cloud(pcl_pub, groundOffCloud.ptrCloud);
-    // Store object-relevant infomation into THE LIST
-    LinkList<detection_cam> detectPrev = *ptrDetectFrame;
-    ptrDetectFrame->Reset();
-    objInfo(pointTrans, ptrDetectFrame, groundOffCloud.ptrCloud, det_msg);
-    Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
     // Image Process
     sensor_msgs::ImagePtr image;
     publish_2d_box(img_msg, image, ptrDetectFrame);
