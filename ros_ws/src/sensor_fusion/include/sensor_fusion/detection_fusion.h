@@ -23,55 +23,47 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-#include <ros/ros.h>
-#include <visualization_msgs/Marker.h>
+#include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
-#include "darknet_ros_msgs/BoundingBox.h"
-#include "darknet_ros_msgs/BoundingBoxes.h"
-#include "darknet_ros_msgs/ObjectCount.h"
+#include "darknet_ros_msgs/msg/bounding_box.hpp"
+#include "darknet_ros_msgs/msg/bounding_boxes.hpp"
+#include "darknet_ros_msgs/msg/bounding_box3d.hpp"
+#include "darknet_ros_msgs/msg/bounding_boxes3d.hpp"
+
 
 
 // Calculation of 2d-box
-// #define IMG_LENGTH 1242
-// #define IMG_WIDTH 375
+#define IMG_LENGTH 1242
+#define IMG_WIDTH 375
 
 
 
-#define S_GROUP_THRESHOLD 5
-#define S_GROUP_REFINED_THRESHOLD 10
+#define S_GROUP_THRESHOLD 10
+#define S_GROUP_REFINED_THRESHOLD 5
 // L-shape Fitting Proposal Params
 #define ANGLE_RESO 0.06
 #define POINT_NUM 2
+#define MIN_SLOPE 0.0000001
 typedef std::string string;
 typedef Eigen::Matrix<double, 3, 4> Matrix34d;
 typedef Eigen::Matrix<double, 4, 4> Matrix4d;
 typedef Eigen::Matrix<float, 4, 4> Matrix4f;
 typedef Eigen::Matrix<float, 2, 2> Matrix2f;
 typedef Eigen::Matrix<float, 4, 1> Matrix41f;
-typedef std::vector<darknet_ros_msgs::BoundingBox> Boxes2d;
-typedef darknet_ros_msgs::BoundingBox Box2d;
-struct position {
-    float x;
-    float y;
-    float z;
-    // Euler angles
-    float psi;
-    float theta;
-    float phi;
-};
-struct dimension {
-    float length;
-    float width;
-    float height;
-};
+typedef std::vector<darknet_ros_msgs::msg::BoundingBox> Boxes2d;
+typedef std::vector<darknet_ros_msgs::msg::BoundingBox3d> Boxes3d;
+typedef darknet_ros_msgs::msg::BoundingBox Box2d;
+typedef darknet_ros_msgs::msg::BoundingBox3d Box3d;
 struct detection_cam {
     int id = 0;
     int miss = 0;
     Box2d box;
-    pcl::PointCloud<pcl::PointXYZI> PointCloud;
+    Box3d box3d;
+    //pcl::PointCloud<pcl::PointXYZI> PointCloud;
     pcl::PointCloud<pcl::PointXYZI> CarCloud;
-    dimension dim;
-    position pos;
+    
 };
 struct PointXYZIRT {
     pcl::PointXYZI point;
@@ -92,28 +84,24 @@ public:
     ~detection_fusion();
     void Initialize(const Matrix34d point_projection_matrix_, 
                     LinkList<detection_cam> &DetectFrame, 
-                    const darknet_ros_msgs::BoundingBoxes::ConstPtr& BBoxes_msg,
+                    const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& BBoxes_msg,
                     pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_);
     bool Is_initialized();
     void extract_feature();
-    double eu_cluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, 
-                      pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster,
-                      Eigen::Matrix<float, 4, 1> u);
+    bool eu_cluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, 
+                      pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster);
     
     void clip_frustum(const Box2d box2d, pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud);
     bool in_frustum(const double u, const double v, const Box2d box);
     
     double Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCarCloud,
                   pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup,
-                  Eigen::Matrix<float, 4, 1> u);
+                  Eigen::Matrix<float, 4, 1> &u);
     void Lproposal(const PointCloudXYZIRT Sgroup_, pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup);
     double Lfit(const pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, Matrix41f &u);
     Matrix4f deltaM_compute(const pcl::PointXYZI point);
+    void bounding_box_param(const Eigen::Matrix<float, 4, 1> u, pcl::PointCloud<pcl::PointXYZI>::Ptr& ptrSgroup, 
+                            pcl::PointCloud<pcl::PointXYZI>::Ptr& carCloud, Box3d& box3d);
     void point_projection_into_line(float &x, float &y, const float k, const float b);
 };
-void rotateZ(geometry_msgs::Point &p, float pos_x, float pos_y, float phi);
-void publish_3d_box(detection_cam* ptr_detect, ros::Publisher &box3d_pub);
-void publish_2d_box(const sensor_msgs::ImageConstPtr& img_in,
-                    sensor_msgs::ImagePtr& img_out, LinkList<detection_cam>* ptrDetectFrame);
-
 #endif

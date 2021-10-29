@@ -1,0 +1,6 @@
+sensor_fusion:
+  sensor_fusion:
+    ros__parameters:
+      point_cloud_topic: "/kitti_pub/kitti_points"
+      image_topic: "/kitti_pub/kitti_cam02"
+      detect_box2d_topic: "/kitti_pub/yolo_det"

@@ -1,7 +1,8 @@
 #ifndef TRACKING_H
 #define TRACKING_H
-#include "LinkList.hpp"
-#include "detection_fusion.h"
+#include "sensor_fusion/detection_fusion.h"
+#include "sensor_fusion/LinkList.hpp"
+#include "sensor_fusion/detection_fusion.h"
 #include <Eigen/Eigen>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -15,14 +16,13 @@
 #include <vector>
 #include <algorithm>
 
-
-#define MAX_STATIC_FRAME 2
-#define MAX_OBJECT 500
+#define MAX_FRAME 154
+#define MAX_DETECT_PER_FRAME 20
+#define MAX_OBJECT_IN_LIST 500
 #define MIN_IoU 0.2
-// Max objects number
-#define FRAME_MAX 154
-// in case of fault 2d detection
 #define MISSED_FRAME 4
+#define MAX_STATIC_FRAME 2
+
 typedef std::string string;
 typedef Eigen::Matrix<double, 3, 3> Matrix3d;
 typedef Eigen::Matrix<double, 3, 4> Matrix34d;
@@ -41,7 +41,7 @@ private:
     //static int nextID;
     bool setMotion();
 public:
-    Object(int nextID, const int qs = FRAME_MAX) : trackID(nextID), LinkList<detection_cam>(qs) {motion = true; nonMotionFrame = 0;/* trackNum++; nextID++;*/}
+    Object(int nextID, const int qs = MAX_FRAME) : LinkList<detection_cam>(qs), trackID(nextID) {motion = true; nonMotionFrame = 0;/* trackNum++; nextID++;*/}
     ~Object() {/*trackNum--;*/};
     bool isMotion();
     void addNonMotion();
@@ -53,13 +53,13 @@ public:
 class ObjectList : public LinkList<Object> {
 private:
 public:
-    ObjectList(const int qs = MAX_OBJECT) : LinkList<Object>(qs) {};
+    ObjectList(const int qs = MAX_OBJECT_IN_LIST) : LinkList<Object>(qs) {};
+    //ObjectList(const int qs = 500) : LinkList<Object>(qs) {};
     ~ObjectList(){};
     bool addTrack(const int ID, const detection_cam track);
     bool delID(const int ID);
     int searchID(const int ID);
 };
-
 void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detectCurr, ObjectList* objectList);
 double IoU(const Box2d prev_box, const Box2d curr_box);
 #endif

@@ -41,7 +41,7 @@ include_directories(
 # link_directories(${PCL_LIBRARY_DIRS})
 # link_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(kitti_pub src/kitti_pub.cpp src/data_utils.cpp)
+add_executable(kitti_pub src/kitti_pub.cpp)
 
 target_link_libraries(kitti_pub
   ${catkin_LIBRARIES}

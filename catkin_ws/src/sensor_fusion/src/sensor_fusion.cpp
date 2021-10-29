@@ -32,7 +32,7 @@ void CallBack(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     detection.Initialize(pointTrans, *ptrDetectFrame, det_msg, groundOffCloud.ptrCloud);
     if (detection.Is_initialized()) detection.extract_feature();
     // objInfo(pointTrans, ptrDetectFrame, groundOffCloud.ptrCloud, det_msg);
-    // Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
+    Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
     for(int j = 0; j < ptrDetectFrame->count(); j++) {
         detection_cam detect = ptrDetectFrame->getItem(j);
         detection_cam* ptr_detect = &detect;

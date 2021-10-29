@@ -1,8 +1,8 @@
-#include "data_utils.h"
-#define FRAME_MAX 154
+#include "kitti_data_utils.hpp"
+#define FRAME_MAX 55
 
 int main(int argc, char ** argv) {
-    int frame = 0;
+    int frame = 40;
     ros::init(argc, argv, "kitti_pub");
     ros::NodeHandle n;
     ros::Rate loop_rate(10);
@@ -43,6 +43,7 @@ int main(int argc, char ** argv) {
 
 	frame += 1;
 	frame %= FRAME_MAX;
+if(frame == 1) frame += 40;
         ros::spinOnce();
         loop_rate.sleep();
     }
