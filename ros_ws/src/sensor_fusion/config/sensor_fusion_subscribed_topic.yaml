@@ -4,3 +4,4 @@ sensor_fusion:
       point_cloud_topic: "/kitti_pub/kitti_points"
       image_topic: "/kitti_pub/kitti_cam02"
       detect_box2d_topic: "/kitti_pub/yolo_det"
+      detect_obj2d_topic: "/kitti_pub/obj_det"

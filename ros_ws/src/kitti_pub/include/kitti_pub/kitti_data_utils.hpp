@@ -38,6 +38,10 @@
 #define BOX_LENGTH 7
 #define FRAME_MAX 154
 #define  PUB_TIME_INTERVAL 500ms
+/////////////
+/// TYPES ///
+/////////////
+typedef darknet_ros_msgs::msg::BoundingBox Box2d;
 typedef std::string string;
 using namespace std::chrono_literals;
 
@@ -52,6 +56,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gps_pub;
     // rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub;
     rclcpp::Publisher<darknet_ros_msgs::msg::BoundingBoxes>::SharedPtr box2d_pub;
+    rclcpp::Publisher<darknet_ros_msgs::msg::BoundingBoxes>::SharedPtr obj2d_pub;
     struct dynamics {
         float vn, ve, vf, vl, vu;
         float ax, ay, az;
@@ -65,18 +70,21 @@ private:
         sensor_msgs::msg::Imu::SharedPtr imu_msg;
         sensor_msgs::msg::NavSatFix::SharedPtr gps_msg;
         darknet_ros_msgs::msg::BoundingBoxes bBoxes_msg;
+        darknet_ros_msgs::msg::BoundingBoxes obj_msg;
         read_pcl(cloud);
         read_img(img_msg);
         //read_oxt(imu_msg, gps_msg);
-        read_det(bBoxes_msg);
+        read_det(bBoxes_msg, obj_msg);
 
         img_pub->publish(*img_msg);
         //imu_pub->publish(*imu_msg);
         //gps_pub->publish(*gps_msg);
         box2d_pub->publish(bBoxes_msg);
+        obj2d_pub->publish(obj_msg);
         publish_point_cloud(cloud);
-        frame += 1;
-        frame %= FRAME_MAX;
+        frame = 152;
+        //frame += 1;
+        //frame %= FRAME_MAX;
         RCLCPP_INFO(this->get_logger(), "Publishing frame: %d", frame);
     }
     const string base_dir = "/home/kiki/data/kitti/RawData/2011_09_26/2011_09_26_drive_0005_sync";
@@ -95,18 +103,19 @@ private:
     void read_oxt(sensor_msgs::msg::Imu::SharedPtr& imu,
                                   sensor_msgs::msg::NavSatFix::SharedPtr& gps);
     // void read_oxt(nav_msgs::msg::Odometry::SharedPtr& odom);
-    void read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxes_msg);
+    void read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxes_msg, darknet_ros_msgs::msg::BoundingBoxes& objections_msg);
     void publish_point_cloud(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud);
     void kittiBin2Pcd(string &in_file, string& out_file);
     void strTime2unix(string UTC, int& seconds, int& nanoseconds);
     string nameGenerate(const string& suffix, const int length = NAME_LENGTH);
 public:
-    KittiPublisher():Node("kitti_node") ,frame(0), count_(0){
+    KittiPublisher():Node("kitti_node") ,frame(150), count_(0) {
         img_pub = this->create_publisher<sensor_msgs::msg::Image>("kitti_cam02", 10);
         pcl_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("kitti_points", 10);
         imu_pub = this->create_publisher<sensor_msgs::msg::Imu>("kitti_imu", 10);
         gps_pub = this->create_publisher<sensor_msgs::msg::NavSatFix>("kitti_gps", 10);
         box2d_pub = this->create_publisher<darknet_ros_msgs::msg::BoundingBoxes>("yolo_det", 10);
+        obj2d_pub = this->create_publisher<darknet_ros_msgs::msg::BoundingBoxes>("obj_det", 10);
         timer_ = this->create_wall_timer(
         PUB_TIME_INTERVAL, std::bind(&KittiPublisher::timer_callback, this));
     }
@@ -219,7 +228,7 @@ void KittiPublisher::read_oxt(sensor_msgs::msg::Imu::SharedPtr& imu,
 *输入：
 *boundingBoxes_msg：单帧检测结果的消息
 *****************************************************/
-void KittiPublisher::read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxes_msg) {
+void KittiPublisher::read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxes_msg, darknet_ros_msgs::msg::BoundingBoxes& objections_msg) {
     string file_path = base_dir + det_dir;
     std::ifstream input_file(file_path.c_str(), std::ifstream::in);
     if(!input_file.is_open()) RCLCPP_INFO (this->get_logger(), "Detection File doesn't exist.");
@@ -235,21 +244,24 @@ void KittiPublisher::read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxe
             for (int a = 0; a < BOX_LENGTH; a++)
                 iss >> box[a];
             iss >> type;
+            Box2d boundingBox;
+            double xmin = (box[0] - box[2] / 2) * IMG_LENGTH;
+            double ymin = (box[1] - box[3] / 2) * IMG_WIDTH;
+            double xmax = (box[0] + box[2] / 2) * IMG_LENGTH;
+            double ymax = (box[1] + box[3] / 2) * IMG_WIDTH;
+            boundingBox.obj_class = type;
+            boundingBox.probability = box[5];
+            boundingBox.xmin = xmin;
+            boundingBox.ymin = ymin;
+            boundingBox.xmax = xmax;
+            boundingBox.ymax = ymax;
             if (type == "car" || type == "truck") {
-                darknet_ros_msgs::msg::BoundingBox boundingBox;
-                double xmin = (box[0] - box[2] / 2) * IMG_LENGTH;
-                double ymin = (box[1] - box[3] / 2) * IMG_WIDTH;
-                double xmax = (box[0] + box[2] / 2) * IMG_LENGTH;
-                double ymax = (box[1] + box[3] / 2) * IMG_WIDTH;
-                boundingBox.obj_class = type;
                 boundingBox.id = id;
-                boundingBox.probability = box[5];
-                boundingBox.xmin = xmin;
-                boundingBox.ymin = ymin;
-                boundingBox.xmax = xmax;
-                boundingBox.ymax = ymax;
                 boundingBoxes_msg.bounding_boxes.push_back(boundingBox);
                 id++;
+            } else {
+                boundingBox.id = -1;
+                objections_msg.bounding_boxes.push_back(boundingBox);
             }
         }
         else if(frame_read > frame)
@@ -259,6 +271,8 @@ void KittiPublisher::read_det(darknet_ros_msgs::msg::BoundingBoxes& boundingBoxe
     read_stp(header, IMAGE);
     boundingBoxes_msg.header = header;
     boundingBoxes_msg.image_header = header;
+    objections_msg.header = header;
+    objections_msg.image_header = header;
     input_file.close();
 }
 /*****************************************************

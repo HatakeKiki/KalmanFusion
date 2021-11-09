@@ -24,7 +24,7 @@ def generate_launch_description():
             package='kitti_pub',
             node_namespace='kitti_pub',
             node_executable='kitti_pub',
-            output='screen'
+            # output='screen'
         ),
         launch_ros.actions.Node(
             package='sensor_fusion',

@@ -47,6 +47,7 @@ typedef message_filters::sync_policies::ApproximateTime
          sensor_msgs::msg::Image,
          //sensor_msgs::msg::Imu,
          //sensor_msgs::msg::NavSatFix,
+         darknet_ros_msgs::msg::BoundingBoxes,
          darknet_ros_msgs::msg::BoundingBoxes> my_sync_policy;
 typedef message_filters::Synchronizer<my_sync_policy> Sync;
 /////////////////

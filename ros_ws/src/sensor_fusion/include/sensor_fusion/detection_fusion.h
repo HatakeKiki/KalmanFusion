@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <vector>
 #include <algorithm>
+#include <unordered_set>
 
 #include <Eigen/Eigen>
 #include <pcl/filters/extract_indices.h>
@@ -59,6 +60,8 @@ typedef darknet_ros_msgs::msg::BoundingBox3d Box3d;
 struct detection_cam {
     int id = 0;
     int miss = 0;
+    bool far = false;
+    float distance_far = 0;
     Box2d box;
     Box3d box3d;
     //pcl::PointCloud<pcl::PointXYZI> PointCloud;
@@ -74,8 +77,11 @@ typedef std::vector<PointXYZIRT> PointCloudXYZIRT;
 class detection_fusion {
 private:
     Boxes2d boxes2d;
+    Boxes2d objs2d;
     LinkList<detection_cam>* ptrDetectFrame;
+    LinkList<detection_cam>* ptrObjFrame;
     Matrix34d point_projection_matrix;
+    std::vector<std::vector<bool>> occlusion_table;
     bool is_initialized;
     pcl::PointCloud<pcl::PointXYZI>::Ptr inCloud;
     
@@ -85,15 +91,19 @@ public:
     void Initialize(const Matrix34d point_projection_matrix_, 
                     LinkList<detection_cam> &DetectFrame, 
                     const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& BBoxes_msg,
-                    pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_);
+                    const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& Objs_msg,
+                    pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud);
     bool Is_initialized();
     void extract_feature();
+    void obstacle_extract(const int num);
+    void vehicle_extract(const int num);
     bool eu_cluster(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud, 
                       pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster);
     
     void clip_frustum(const Box2d box2d, pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud);
     bool in_frustum(const double u, const double v, const Box2d box);
-    
+    bool in_frustum_overlap(const double u, const double v, const int num);
+    Box2d overlap_box(const Box2d prev_box, const Box2d curr_box);
     double Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCarCloud,
                   pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrSgroup,
                   Eigen::Matrix<float, 4, 1> &u);
@@ -104,4 +114,6 @@ public:
                             pcl::PointCloud<pcl::PointXYZI>::Ptr& carCloud, Box3d& box3d);
     void point_projection_into_line(float &x, float &y, const float k, const float b);
 };
+bool IoU_bool(const Box2d prev_box, const Box2d curr_box);
+void add_to_group(const std::vector<std::vector<bool>> occlusion_table, const int start, std::unordered_set<int>& group_set);
 #endif

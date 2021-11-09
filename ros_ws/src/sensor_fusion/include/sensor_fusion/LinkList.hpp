@@ -21,23 +21,23 @@ protected:
     Node* front;
     Node* rear;
 private:
-    int items;       // current items number
-    const int qsize; // maximum items number
+    size_t items;       // current items number
+    const size_t qsize; // maximum items number
     enum{Q_SIZE = 10};
 public:
-    LinkList(const int qs = Q_SIZE);
+    LinkList(const size_t qs = Q_SIZE);
     ~LinkList();
     // 显示重载赋值运算符
     LinkList & operator = (const LinkList &l);
     LinkList(const LinkList &l);
     void Reset();
-    int count() const;
+    size_t count() const;
     bool isEmpty() const;
     bool isFull() const;
     bool addItem(const Item& item);  // add item at the end
-    bool delItem(const int itemNum); // delete item
-    Item& getItem(const int itemNum);
-    bool getItem(const int itemNum, Item& item);
+    bool delItem(const size_t itemNum); // delete item
+    Item& getItem(const size_t itemNum);
+    bool getItem(const size_t itemNum, Item& item);
 };
 
 /*****************************************************
@@ -46,7 +46,7 @@ public:
 *qs ：队列最大存储元素数，默认值为Q_SIZE
 ******************************************************/
 template<typename Item>
-LinkList<Item>::LinkList(const int qs) : qsize (qs){
+LinkList<Item>::LinkList(const size_t qs) : qsize (qs){
     items = 0;
     front = rear = NULL;
 }
@@ -122,7 +122,7 @@ void LinkList<Item>::Reset() {
 *功能：返回队列当前元素数
 ******************************************************/
 template<typename Item>
-int LinkList<Item>::count() const {
+size_t LinkList<Item>::count() const {
     return items;
 }
 
@@ -166,7 +166,7 @@ bool LinkList<Item>::addItem(const Item& item) {
 *itemNum：相对于队伍开始元素的位移，大小在0到items-1之间
 ******************************************************/
 template<typename Item>
-bool LinkList<Item>::delItem(const int itemNum) {
+bool LinkList<Item>::delItem(const size_t itemNum) {
     if (isEmpty()) {
         std::cerr << "Empty list, cannot delete items." << std::endl;
         return false;
@@ -180,7 +180,7 @@ bool LinkList<Item>::delItem(const int itemNum) {
             front = front->next;
             delete tmp;
         } else {
-            for (int i = 0; i < (itemNum-1); i++) 
+            for (size_t i = 0; i < (itemNum-1); i++) 
                 tmp = tmp->next;
             Node* delNode;
             delNode = tmp->next;
@@ -200,11 +200,11 @@ bool LinkList<Item>::delItem(const int itemNum) {
 *itemNum：相对于队伍开始元素的位移，大小在0到items-1之间
 ******************************************************/
 template<typename Item>
-Item& LinkList<Item>::getItem(const int itemNum) {
+Item& LinkList<Item>::getItem(const size_t itemNum) {
     Node* check;
     check = front;
     if(itemNum > 0) {
-        for (int i = 0; i < itemNum; i++) {
+        for (size_t i = 0; i < itemNum; i++) {
             check = check->next;
         }
     }
@@ -217,7 +217,7 @@ Item& LinkList<Item>::getItem(const int itemNum) {
 *itemNum：相对于队伍开始元素的位移，大小在0到items-1之间
 ******************************************************/
 template<typename Item>
-bool LinkList<Item>::getItem(const int itemNum, Item& item) {
+bool LinkList<Item>::getItem(const size_t itemNum, Item& item) {
     if (itemNum > count() || itemNum < 0) {
         std::cerr << "Elememt number is invalid." << std::endl;
         return false;
@@ -225,7 +225,7 @@ bool LinkList<Item>::getItem(const int itemNum, Item& item) {
         Node* check;
         check = front;
         if (itemNum > 0) {
-            for (int i = 0; i < itemNum; i++) {
+            for (size_t i = 0; i < itemNum; i++) {
                 check = check->next;
             }
         }

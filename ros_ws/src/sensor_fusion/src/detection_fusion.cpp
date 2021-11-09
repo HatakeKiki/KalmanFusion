@@ -2,7 +2,7 @@
 /*****************************************************
 *功能：初始化标志置零
 *****************************************************/
-detection_fusion::detection_fusion(){is_initialized = false;}
+detection_fusion::detection_fusion() : ptrObjFrame(new LinkList<detection_cam>(20)) {is_initialized = false;}
 /*****************************************************
 *功能：释放内存
 *****************************************************/
@@ -22,9 +22,11 @@ bool detection_fusion::Is_initialized() {return is_initialized;}
 void detection_fusion::Initialize(const Matrix34d point_projection_matrix_, 
                                   LinkList<detection_cam> &DetectFrame, 
                                   const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& BBoxes_msg,
+                                  const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& Objs_msg,
                                   pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_) {
     point_projection_matrix = point_projection_matrix_;
     boxes2d = BBoxes_msg->bounding_boxes;
+    objs2d = Objs_msg->bounding_boxes;
     inCloud = in_cloud_->makeShared();
     ptrDetectFrame = &DetectFrame;
     is_initialized = true;
@@ -33,26 +35,69 @@ void detection_fusion::Initialize(const Matrix34d point_projection_matrix_,
 *功能：结合二维检测结果，处理点云获得三维检测结果，并加入列表中
 *****************************************************/
 void detection_fusion::extract_feature() {
-    for(std::vector<Box2d>::iterator it = boxes2d.begin();it != boxes2d.end(); ++it) {
-        //if (it->xmin > 0 && it->ymin > 0 && it->xmax < IMG_LENGTH && it->ymax < IMG_WIDTH) {
-        detection_cam* ptr_det (new detection_cam);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud (new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud (new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
-        clip_frustum(*it, fruCloud);
-        Eigen::Matrix<float, 4, 1> u = Matrix41f::Zero();
-        if (fruCloud->points.size()) {
-            //ptr_det->PointCloud = *fruCloud;
-            if(eu_cluster(fruCloud, carCloud)) {
-                double error = Lshape(carCloud, ptrSgroup, u);
-                ptr_det->CarCloud = *ptrSgroup;
-                if (error > 0) bounding_box_param(u, ptrSgroup, carCloud, ptr_det->box3d);
-            }
-        }
-        ptr_det->box = *it;
-        ptrDetectFrame->addItem(*ptr_det);
-        //}
+    // sort by distance
+    std::sort(boxes2d.begin(), boxes2d.end(), [](const Box2d& box_1, const Box2d& box_2) {return box_1.ymax > box_2.ymax;});
+    // occlusion between vehicles and vehicles
+    for(size_t i = 0; i < boxes2d.size(); i++) {
+        occlusion_table.push_back(std::vector<bool> {});
+        //int i_ = i;
+        //while(i_) {occlusion_table[i].push_back(0); i_--;}
+        for(size_t j = i+1; j < boxes2d.size(); j++)
+            occlusion_table[i].push_back(IoU_bool(boxes2d[i], boxes2d[j]));
     }
+    // occlusion between objects and vehicles
+    for(size_t i = 0; i < objs2d.size(); i++) {
+        occlusion_table.push_back(std::vector<bool> {});
+        for(size_t j = 0; j < boxes2d.size(); j++)
+            occlusion_table[boxes2d.size()+i].push_back(IoU_bool(objs2d[i], boxes2d[j]));
+    }
+    // seperate into groups by occlusion
+    std::vector<std::unordered_set<int>> group_all;
+    size_t all_size = 0;
+    size_t start = 0;
+    while(all_size < boxes2d.size()) {
+        std::unordered_set<int> group_set;
+        add_to_group(occlusion_table, start, group_set);
+        group_all.push_back(group_set);
+        for(size_t i = start; i < boxes2d.size(); i++) {
+            auto it = group_all.begin();
+            while(it != group_all.end()) {
+                if(it->find(i) != it->end()) break;
+                it++;
+            }
+            if(it == group_all.end()) {start  = i; std::cout << "start: " << start << std::endl; break;}
+        }
+        all_size += group_set.size();
+    }
+    // sort by distance
+    std::vector<std::vector<int>> group_sorted;
+    for(size_t i = 0; i < group_all.size(); i++) {
+        group_sorted.push_back(std::vector<int> {});
+        for(auto it = group_all[i].begin(); it != group_all[i].end(); it++)
+            group_sorted[i].push_back(*it);
+        sort(group_sorted[i].begin(), group_sorted[i].end());
+    }
+    // Process obstables occluding vehicles first
+    for(size_t i = boxes2d.size(); i < occlusion_table.size(); i++) {
+        for(size_t j = 0; j < boxes2d.size(); j++) {
+            if(occlusion_table[i][j]) {obstacle_extract(i-boxes2d.size()); break;}
+        }
+        if(ptrObjFrame->count() != i + 1 - boxes2d.size()) {
+            std::vector<Box2d>::iterator it = objs2d.begin() + (i-boxes2d.size());
+            detection_cam* ptr_det (new detection_cam);
+            ptr_det->box = *it;
+            ptr_det->id = i-boxes2d.size();
+            ptrObjFrame->addItem(*ptr_det);
+        }
+    }
+    // Process vehicles according to groups and distance
+    for(size_t i = 0; i < group_sorted.size(); i++) {
+        for(size_t j =0; j < group_sorted[i].size(); j++) {
+            vehicle_extract(group_sorted[i][j]);
+        }
+    }
+
+    //for(size_t i = 0; i < boxes2d.size(); i++) vehicle_extract(i);
 }
 /*****************************************************
 *功能：根据二维结果剪切点云
@@ -94,6 +139,116 @@ bool detection_fusion::in_frustum(const double u, const double v, const Box2d bo
         return true;
     else
         return false;
+}
+/*****************************************************
+*功能：判断单个点是否在检测框内，考虑重合部分
+*输入：
+*u: 投影后在图像上的u坐标
+*u: 投影后在图像上的v坐标
+*box2d: 二维检测框
+*****************************************************/
+bool detection_fusion::in_frustum_overlap(const double u, const double v, const int num) {
+    std::vector<Box2d>::iterator it = boxes2d.begin() + num;
+    if(num == 0) return in_frustum(u,v,*it);
+    std::vector<Box2d> overlap_area;
+    for(size_t i = 0; i < occlusion_table.size(); i++) {
+        if(occlusion_table[i][i+1+num]) {
+            overlap_area.push_back(overlap_box(*it, ptrDetectFrame->getItem(i).box));
+        }
+    }
+    if(in_frustum(u, v, *it)) {
+        auto it_overlap = overlap_area.begin();
+        for(; it_overlap != overlap_area.end(); it_overlap++) {
+            if(in_frustum(u, v, *it_overlap)) {
+                return false;
+            } else continue;
+        }
+        if(it_overlap == overlap_area.end()) return true;
+    }
+    return false;
+}
+/*****************************************************
+*功能：判断单个点是否在检测框内，考虑重合部分
+*输入：
+*u: 投影后在图像上的u坐标
+*u: 投影后在图像上的v坐标
+*box2d: 二维检测框
+*****************************************************/
+Box2d detection_fusion::overlap_box(const Box2d prev_box, const Box2d curr_box) {
+    Box2d overlap;
+    double prev_center_x = (prev_box.xmax +  prev_box.xmin) / 2;
+    double prev_center_y = (prev_box.ymax +  prev_box.ymin) / 2;
+    double prev_length = prev_box.xmax -  prev_box.xmin;
+    double prev_width = prev_box.ymax -  prev_box.ymin;
+
+    double curr_center_x = (curr_box.xmax +  curr_box.xmin) / 2;
+    double curr_center_y = (curr_box.ymax +  curr_box.ymin) / 2;
+    double curr_length = curr_box.xmax -  curr_box.xmin;
+    double curr_width = curr_box.ymax -  curr_box.ymin;
+
+    double delta_x = std::abs(prev_center_x - curr_center_x);
+    double delta_y = std::abs(prev_center_y - curr_center_y);
+    double x_threshold = std::abs(prev_length/2 - curr_length/2);
+    double y_threshold = std::abs(prev_width/2 - curr_width/2);
+    // completely covered
+    if(delta_x < x_threshold && delta_y < y_threshold) {
+        overlap = prev_length < curr_length ? prev_box : curr_box;
+    } else if(delta_y < y_threshold) {
+        Box2d small = prev_width < curr_width ? prev_box : curr_box;
+        Box2d large = prev_width < curr_width ? curr_box : prev_box;
+        double small_center_x = (small.xmax +  small.xmin) / 2;
+        double large_center_x = (large.xmax +  large.xmin) / 2;
+        if (small_center_x < large_center_x) {
+            overlap.xmax = small.xmax;
+            overlap.ymax = small.ymax;
+            overlap.xmin = large.xmin;
+            overlap.ymin = small.ymin;
+        } else{
+            overlap.xmax = large.xmax;
+            overlap.ymax = small.ymax;
+            overlap.xmin = small.xmin;
+            overlap.ymin = small.ymin;
+        }
+    } else if(delta_x < x_threshold) {
+        Box2d small = prev_length < curr_length ? prev_box : curr_box;
+        Box2d large = prev_length < curr_length ? curr_box : prev_box;
+        double small_center_y = (small.ymax +  small.ymin) / 2;
+        double large_center_y = (large.ymax +  large.ymin) / 2;
+        if (small_center_y < large_center_y) {
+            overlap.xmax = small.xmax;
+            overlap.ymax = large.ymax;
+            overlap.xmin = small.xmin;
+            overlap.ymin = small.ymin;
+        } else{
+            overlap.xmax = large.xmax;
+            overlap.ymax = small.ymax;
+            overlap.xmin = small.xmin;
+            overlap.ymin = large.ymin;
+        }
+    } else {
+        double delta_x_signed = prev_center_x - curr_center_x;
+        double delta_y_signed = prev_center_y - curr_center_y;
+        if(delta_x_signed * delta_y_signed < 0) {
+            Box2d top_left;
+            Box2d down_right;
+            top_left = prev_center_x < curr_center_x ? prev_box : curr_box;
+            down_right = prev_center_x < curr_center_x ? curr_box : prev_box;
+            overlap.xmax = top_left.xmax;
+            overlap.ymax = top_left.ymax;
+            overlap.xmin = down_right.xmin;
+            overlap.ymin = down_right.ymin;
+        } else {
+            Box2d down_left;
+            Box2d top_right;
+            top_right = prev_center_x < curr_center_x ? prev_box : curr_box;
+            down_left = prev_center_x < curr_center_x ? curr_box : prev_box;
+            overlap.xmax = down_left.xmax;
+            overlap.ymax = top_right.ymax;
+            overlap.xmin = top_right.xmin;
+            overlap.ymin = down_left.ymin;
+        }
+    }
+    return overlap;
 }
 /*****************************************************
 *功能：欧几里得聚类，输出最大的点云聚类结果
@@ -237,7 +392,8 @@ void detection_fusion::bounding_box_param(const Eigen::Matrix<float, 4, 1> u, pc
     float n1 = u(2,0);
     float n2 = u(3,0);
     // Intersection point
-    float x0, y0;
+    float x0 = 0;
+    float y0 = 0;
     if(std::abs(n1/n2) < MIN_SLOPE && n2 != 0) {y0 = -c1/n2; x0 = c2/n2;}
     else if (std::abs(n2/n1) < MIN_SLOPE && n1 != 0) {y0 = -c2/n1; x0 = -c1/n1;}
     else if (n1 != 0 && n1 != 0) {
@@ -421,4 +577,137 @@ Matrix4f detection_fusion::deltaM_compute(const pcl::PointXYZI point) {
 void detection_fusion::point_projection_into_line(float &x, float &y, const float k, const float b) {
     x = (k*(y-b)+x)/(k*k+1);
     y = k*x+b;
+}
+/*****************************************************
+*功能：点云投影到直线上的坐标
+*输入：
+*x: 点云横坐标
+*y: 点云纵坐标
+*k：直线斜率
+*b：直线横截率
+*****************************************************/
+void detection_fusion::obstacle_extract(const int num) {
+    std::vector<Box2d>::iterator it = objs2d.begin() + num;
+    detection_cam* ptr_det (new detection_cam);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr objCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    clip_frustum(*it, fruCloud);
+    if (fruCloud->points.size()) {
+        if(eu_cluster(fruCloud, objCloud)) ptr_det->CarCloud = *objCloud;
+        else {
+            // add far-away objects flag
+            ptr_det->far = true;
+            float dis = 0;
+            for(size_t i = 0; i < fruCloud->points.size(); i++) {
+                dis = (dis*i+fruCloud->points[i].x)/(i+1);
+            }
+            ptr_det->distance_far = dis;
+        }
+    }
+    ptr_det->box = *it;
+    ptr_det->id = num;
+    ptrObjFrame->addItem(*ptr_det);
+}
+void detection_fusion::vehicle_extract(const int num) {
+    std::vector<Box2d>::iterator it = boxes2d.begin() + num;
+    //if (it->xmin > 0 && it->ymin > 0 && it->xmax < IMG_LENGTH && it->ymax < IMG_WIDTH) {
+    detection_cam* ptr_det (new detection_cam);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
+    clip_frustum(*it, fruCloud);
+    Eigen::Matrix<float, 4, 1> u = Matrix41f::Zero();
+    if (fruCloud->points.size()) {
+        //ptr_det->PointCloud = *fruCloud;
+        if(eu_cluster(fruCloud, carCloud)) {
+            double error = Lshape(carCloud, ptrSgroup, u);
+            ptr_det->CarCloud = *ptrSgroup;
+            if (error > 0) bounding_box_param(u, ptrSgroup, carCloud, ptr_det->box3d);
+        } else {
+            // add far-away objects flag
+            ptr_det->far = true;
+            float dis = 0;
+            for(size_t i = 0; i < fruCloud->points.size(); i++) {
+                dis = (dis*i+fruCloud->points[i].x)/(i+1);
+            }
+            ptr_det->distance_far = dis;
+        }
+    }
+    ptr_det->box = *it;
+    ptrDetectFrame->addItem(*ptr_det);
+    //}
+}
+/*
+void detection_fusion::vehicle_extract(const int num) {
+    std::vector<Box2d>::iterator it = boxes2d.begin() + num;
+    //if (it->xmin > 0 && it->ymin > 0 && it->xmax < IMG_LENGTH && it->ymax < IMG_WIDTH) {
+    detection_cam* ptr_det (new detection_cam);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr fruCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud (new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup (new pcl::PointCloud<pcl::PointXYZI>);
+    clip_frustum(*it, fruCloud);
+    Eigen::Matrix<float, 4, 1> u = Matrix41f::Zero();
+    if (fruCloud->points.size()) {
+        //ptr_det->PointCloud = *fruCloud;
+        if(eu_cluster(fruCloud, carCloud)) {
+            double error = Lshape(carCloud, ptrSgroup, u);
+            ptr_det->CarCloud = *ptrSgroup;
+            if (error > 0) bounding_box_param(u, ptrSgroup, carCloud, ptr_det->box3d);
+        } else {
+            // add far-away objects flag
+            ptr_det->far = true;
+            float dis = 0;
+            for(size_t i = 0; i < fruCloud->points.size(); i++) {
+                dis = (dis*i+fruCloud->points[i].x)/(i+1);
+            }
+            ptr_det->distance_far = dis;
+        }
+    }
+    ptr_det->box = *it;
+    ptrDetectFrame->addItem(*ptr_det);
+    //}
+}
+*/
+/*****************************************************
+*功能：求取两个图像二维检测结果IoU数值
+*输入：
+*prev_box: 前一帧的一个检测结果
+*curr_box: 当前帧的一个检测结果
+*输出：
+*IoU数值
+*****************************************************/
+bool IoU_bool(const Box2d prev_box, const Box2d curr_box) {
+    double prev_center_x = (prev_box.xmax +  prev_box.xmin) / 2;
+    double prev_center_y = (prev_box.ymax +  prev_box.ymin) / 2;
+    double prev_length = prev_box.xmax -  prev_box.xmin;
+    double prev_width = prev_box.ymax -  prev_box.ymin;
+
+    double curr_center_x = (curr_box.xmax +  curr_box.xmin) / 2;
+    double curr_center_y = (curr_box.ymax +  curr_box.ymin) / 2;
+    double curr_length = curr_box.xmax -  curr_box.xmin;
+    double curr_width = curr_box.ymax -  curr_box.ymin;
+
+    double len = (prev_length + curr_length)/2 -  std::abs(prev_center_x - curr_center_x);
+    double wid = (prev_width + curr_width)/2 -  std::abs(prev_center_y - curr_center_y);
+    if (len > 0 && wid > 0) {
+        //double inter = len * wid;
+        //double union_ = prev_length * prev_width + curr_length * curr_width - inter;
+        //return inter/union_;
+        return true;
+    } else {
+        return false;
+    }
+}
+void add_to_group(const std::vector<std::vector<bool>> occlusion_table, const int start, std::unordered_set<int>& group_set) {
+    group_set.insert(start);
+    std::cout << "group_member: " << start << std::endl;
+    for(size_t i = 0; i < occlusion_table[start].size(); i++) {
+        if(occlusion_table[start][i]) {
+            int group_member = start+1+i;
+            if(group_set.find(group_member) == group_set.end()) {
+                //group_set.insert(group_member);
+                add_to_group(occlusion_table, group_member, group_set);
+            }
+        }
+    }
 }

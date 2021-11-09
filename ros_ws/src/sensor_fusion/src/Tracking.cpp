@@ -92,10 +92,10 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
         // 计算关联值
         double maxIoU = MIN_IoU;
         int flag = -1;
-        int j_max = detectCurr.count();
+        size_t j_max = detectCurr.count();
         // 选择关联值最大且大于阈值的两个检测并将之关联起来
         if (j_max) {
-            for (int j = 0; j < j_max; j++) {
+            for (size_t j = 0; j < j_max; j++) {
                 detection_cam prev;
                 detection_cam curr;
                 if (detectPrev.getItem(0, prev) && detectCurr.getItem(j, curr)) {
@@ -127,7 +127,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
     }
     else if (detectCurr.count()) {
         // 创建新物体，并分配trackID给对应检测数据
-        for (int i = 0; i < detectCurr.count(); i++) {
+        for (size_t i = 0; i < detectCurr.count(); i++) {
             detection_cam* ptrDetect = &detectCurr.getItem(i);
             if(!ptrDetect->id) {
                 ptrDetect->id = nextID;
@@ -200,6 +200,33 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
     }
 }
 */
+
+/*****************************************************
+*功能：计算两帧检测结果的关联矩阵
+*输入：
+*detectPrev: 前一帧的检测结果
+*detectCurr: 当前帧的检测结果
+*输出：
+*关联矩阵
+*!!输出未完成
+*****************************************************
+void corrMatrix(LinkList<detection_cam>& detectPrev, LinkList<detection_cam>& detectCurr) {
+    if (detectPrev.count()) {
+        int i_max = detectPrev.count();
+        int j_max = detectCurr.count();
+        for (int i = 0; i < i_max; i++) {
+            for (int j = 0; j < j_max; j++) {
+                detection_cam prev;
+                detection_cam curr;
+                if (detectPrev.getItem(i, prev) && detectCurr.getItem(j, curr)) {
+                    IoUVal tmp = {i, j, IoU(prev, curr)};
+                    std::cout << std::setprecision(2) << IoU(prev, curr) << '\t';
+                }
+            }
+        std::cout << std::endl;
+        }
+    }
+}*/
 /*****************************************************
 *功能：求取两个图像二维检测结果IoU数值
 *输入：
@@ -229,31 +256,3 @@ double IoU(const Box2d prev_box, const Box2d curr_box) {
         return 0;
     }
 }
-
-/*****************************************************
-*功能：计算两帧检测结果的关联矩阵
-*输入：
-*detectPrev: 前一帧的检测结果
-*detectCurr: 当前帧的检测结果
-*输出：
-*关联矩阵
-*!!输出未完成
-*****************************************************
-void corrMatrix(LinkList<detection_cam>& detectPrev, LinkList<detection_cam>& detectCurr) {
-    if (detectPrev.count()) {
-        int i_max = detectPrev.count();
-        int j_max = detectCurr.count();
-        for (int i = 0; i < i_max; i++) {
-            for (int j = 0; j < j_max; j++) {
-                detection_cam prev;
-                detection_cam curr;
-                if (detectPrev.getItem(i, prev) && detectCurr.getItem(j, curr)) {
-                    IoUVal tmp = {i, j, IoU(prev, curr)};
-                    std::cout << std::setprecision(2) << IoU(prev, curr) << '\t';
-                }
-            }
-        std::cout << std::endl;
-        }
-    }
-}*/
-

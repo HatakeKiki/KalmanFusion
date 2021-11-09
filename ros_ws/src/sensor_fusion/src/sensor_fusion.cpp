@@ -4,7 +4,7 @@
 #include "sensor_fusion/Tracking.h"
 #include <rclcpp/rclcpp.hpp>
 
-typedef message_filters::Synchronizer<my_sync_policy> Sync;
+
 //////////////////
 /// NODE CLASS ///
 //////////////////
@@ -19,6 +19,7 @@ private:
     message_filters::Subscriber<sensor_msgs::msg::PointCloud2> pcl_sub;
     message_filters::Subscriber<sensor_msgs::msg::Image> img_sub;
     message_filters::Subscriber<darknet_ros_msgs::msg::BoundingBoxes> det_sub;
+    message_filters::Subscriber<darknet_ros_msgs::msg::BoundingBoxes> obj_sub;
     //message_filters::Subscriber<sensor_msgs::msg::NavSatFix> gps_sub;
     //message_filters::Subscriber<sensor_msgs::msg::Imu> imu_sub;
 
@@ -27,12 +28,14 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pcl_pub;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr img_pub;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr box3d_pub;
-    string point_cloud_topic, image_topic, detect_box2d_topic;
+
+    string point_cloud_topic, image_topic, detect_box2d_topic, detect_obj2d_topic;
     void sync_callback(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg, 
                        const sensor_msgs::msg::Image::SharedPtr img_msg, 
                        //const sensor_msgs::msg::Imu::SharedPtr imu_msg,
                        //const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg,
-                       const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr det_msg);
+                       const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr det_msg,
+                       const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr obj_msg);
 };
 /*****************************************************
 *功能：传感器融合析构函数，初始化参数
@@ -42,16 +45,19 @@ SensorFusion::SensorFusion() : Node("sensor_fusion"),
                                ptrDetectFrame(new LinkList<detection_cam>(MAX_DETECT_PER_FRAME)) {
     this->declare_parameter<string>("point_cloud_topic", "/kitti_pub/kitti_points");
     this->declare_parameter<string>("image_topic", "/kitti_pub/kitti_cam02");
-    this->declare_parameter<string>("detect_box2d_topic", "/kitti_pub/yolo_det");
+    this->declare_parameter<string>("detect_box2d_topic", "/kitti_pub/yolo_det_");
+    this->declare_parameter<string>("detect_obj2d_topic", "/kitti_pub/obj_det_");
     this->get_parameter_or<string>("point_cloud_topic", point_cloud_topic, "/kitti_pub/kitti_points");
     this->get_parameter_or<string>("image_topic", image_topic, "/kitti_pub/kitti_cam02");
     this->get_parameter_or<string>("detect_box2d_topic", detect_box2d_topic, "/kitti_pub/yolo_det");
+    this->get_parameter_or<string>("detect_obj2d_topic", detect_obj2d_topic, "/kitti_pub/obj_det");
     // Initialize subscriber
     pcl_sub.subscribe(this, point_cloud_topic);
     img_sub.subscribe(this, image_topic);
     det_sub.subscribe(this, detect_box2d_topic);
-    // std::cout << point_cloud_topic << '\t' << image_topic << '\t' << detect_box2d_topic << std::endl;
-    sync_.reset(new Sync(my_sync_policy(10), pcl_sub, img_sub,/* imu_sub, gps_sub, */det_sub));
+    obj_sub.subscribe(this, detect_obj2d_topic);
+    sync_.reset(new Sync(my_sync_policy(10), pcl_sub, img_sub,/* imu_sub, gps_sub, */det_sub, obj_sub));
+    //std::cout << point_cloud_topic << '\t' << image_topic << '\t' << detect_box2d_topic << '\t' << detect_obj2d_topic << std::endl;
     //message_filters::Synchronizer<my_sync_policy> sync(my_sync_policy(10), pcl_sub, img_sub,/* imu_sub, gps_sub, */det_sub);
     img_pub = this->create_publisher<sensor_msgs::msg::Image>("processed_img",10);
     pcl_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("processed_pcl",10);
@@ -69,7 +75,8 @@ void SensorFusion::sync_callback(const sensor_msgs::msg::PointCloud2::SharedPtr 
                                  const sensor_msgs::msg::Image::SharedPtr img_msg, 
                                  //const sensor_msgs::msg::Imu::SharedPtr imu_msg,
                                  //const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg,
-                                 const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr det_msg) {
+                                 const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr det_msg,
+                                 const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr obj_msg) {
     // Extrinsic Params from Camera02 to Velodyne 
     ProjectMatrix proMatrix(2);
     Matrix34d pointTrans = proMatrix.getPMatrix();
@@ -86,14 +93,14 @@ void SensorFusion::sync_callback(const sensor_msgs::msg::PointCloud2::SharedPtr 
     LinkList<detection_cam> detectPrev = *ptrDetectFrame;
     ptrDetectFrame->Reset();
     detection_fusion detection;
-    detection.Initialize(pointTrans, *ptrDetectFrame, det_msg, groundOffCloud.ptrCloud);
+    detection.Initialize(pointTrans, *ptrDetectFrame, det_msg, obj_msg, groundOffCloud.ptrCloud);
     if (detection.Is_initialized()) detection.extract_feature();
     // Tracking algorithm
     Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
     // Visualizing results
     cv_bridge::CvImageConstPtr cv_ptr;
     cv_ptr = cv_bridge::toCvCopy(img_msg, "bgr8");
-    for(int j = 0; j < ptrDetectFrame->count(); j++) {
+    for(size_t j = 0; j < ptrDetectFrame->count(); j++) {
         detection_cam detect = ptrDetectFrame->getItem(j);
         detection_cam* ptr_detect = &detect;
         if (!ptr_detect->miss) {
