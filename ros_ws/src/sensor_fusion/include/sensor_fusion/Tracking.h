@@ -37,15 +37,21 @@ private:
     const int trackID;
     bool motion;
     int nonMotionFrame;
+    float tracking_length = 0;
+    float tracking_width = 0;
+    float tracking_height = 0;
     //static int trackNum;
     //static int nextID;
     bool setMotion();
 public:
     Object(int nextID, const int qs = MAX_FRAME) : LinkList<detection_cam>(qs), trackID(nextID) {motion = true; nonMotionFrame = 0;/* trackNum++; nextID++;*/}
+    Object(int nextID, detection_cam obj_det, const int qs = MAX_FRAME) : LinkList<detection_cam>(qs), trackID(nextID) {motion = true; nonMotionFrame = 0; addItem(obj_det); renewDimenstion();/* trackNum++; nextID++;*/}
     ~Object() {/*trackNum--;*/};
     bool isMotion();
     void addNonMotion();
     int getTrackID();
+    bool renewDimenstion();
+    void getDimension(float &length_, float &width_, float &height_);
 };
 /*************************************************************************
 *功能：存储物体
@@ -59,7 +65,9 @@ public:
     bool addTrack(const int ID, const detection_cam track);
     bool delID(const int ID);
     int searchID(const int ID);
+    Object* getObject(const int ID);
 };
 void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detectCurr, ObjectList* objectList);
 double IoU(const Box2d prev_box, const Box2d curr_box);
+void renewBox3d(Box3d &box3d, const float length, const float width, const float height);
 #endif

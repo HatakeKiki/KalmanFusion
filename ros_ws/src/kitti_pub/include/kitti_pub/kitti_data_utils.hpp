@@ -37,7 +37,7 @@
 #define IMG_WIDTH 375
 #define BOX_LENGTH 7
 #define FRAME_MAX 154
-#define  PUB_TIME_INTERVAL 500ms
+#define  PUB_TIME_INTERVAL 1000ms
 /////////////
 /// TYPES ///
 /////////////
@@ -66,6 +66,7 @@ private:
     };
     void timer_callback() {
         pcl::PointCloud<pcl::PointXYZI>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZI>);
+        if(frame < FRAME_MAX) {
         sensor_msgs::msg::Image::SharedPtr img_msg;
         sensor_msgs::msg::Imu::SharedPtr imu_msg;
         sensor_msgs::msg::NavSatFix::SharedPtr gps_msg;
@@ -82,10 +83,9 @@ private:
         box2d_pub->publish(bBoxes_msg);
         obj2d_pub->publish(obj_msg);
         publish_point_cloud(cloud);
-        frame = 152;
-        //frame += 1;
-        //frame %= FRAME_MAX;
-        RCLCPP_INFO(this->get_logger(), "Publishing frame: %d", frame);
+        frame += 1;
+        frame %= FRAME_MAX;
+        RCLCPP_INFO(this->get_logger(), "Publishing frame: %d", frame);}
     }
     const string base_dir = "/home/kiki/data/kitti/RawData/2011_09_26/2011_09_26_drive_0005_sync";
     const string img_dir = "/image_02/data/";
@@ -109,7 +109,7 @@ private:
     void strTime2unix(string UTC, int& seconds, int& nanoseconds);
     string nameGenerate(const string& suffix, const int length = NAME_LENGTH);
 public:
-    KittiPublisher():Node("kitti_node") ,frame(150), count_(0) {
+    KittiPublisher():Node("kitti_node") ,frame(1), count_(0) {
         img_pub = this->create_publisher<sensor_msgs::msg::Image>("kitti_cam02", 10);
         pcl_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("kitti_points", 10);
         imu_pub = this->create_publisher<sensor_msgs::msg::Imu>("kitti_imu", 10);

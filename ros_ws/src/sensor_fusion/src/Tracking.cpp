@@ -23,6 +23,18 @@ bool Object::setMotion() {
 int Object::getTrackID() {
     return trackID;
 }
+
+bool Object::renewDimenstion() {
+    detection_cam tmp = getItem(items-1);
+    tracking_length = tracking_length < tmp.box3d.length ? tmp.box3d.length : tracking_length;
+    tracking_width = tracking_width < tmp.box3d.width ? tmp.box3d.width : tracking_width;
+    tracking_height = tracking_height < tmp.box3d.height ? tmp.box3d.height : tracking_height;
+}
+void Object::getDimension(float &length_, float &width_, float &height_){
+    length_ = tracking_length;
+    width_ = tracking_width;
+    height_ = tracking_height;
+}
 /*=================================================================================
 Class ObjectList
 =================================================================================*/
@@ -75,11 +87,22 @@ bool ObjectList::addTrack(const int ID, const detection_cam track) {
     Object* ptrObject = &getItem(itemNum);
     if (ptrObject->getTrackID() == ID) {
         ptrObject->addItem(track);
+        ptrObject->renewDimenstion();
         return true;
     } else
         return false;
 }
-
+/*****************************************************
+*功能：返回指定trackID的Object指针
+*输入：
+*ID：寻找指定trackID的Object
+*Object*：指定trackID的Object指针
+******************************************************/
+Object* ObjectList::getObject(const int ID) {
+    int itemNum = searchID(ID);
+    Object* ptrObject = &getItem(itemNum);
+    return ptrObject;
+}
 /*****************************************************
 *功能：两帧检测结果的匹配，创建新物体，更新物体的轨迹
 *输入：
@@ -109,7 +132,12 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 detection_cam* ptrDetectCurr = &detectCurr.getItem(flag);
                 ptrDetectCurr->id = ptrDetectPrev->id;
                 objectList->addTrack(ptrDetectCurr->id, *ptrDetectCurr);
-                //std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
+                // renew dimension
+                //Object* ptrObject = objectList->getObject(ptrDetectCurr->id);
+                //float length_renewed, width_renewed, height_renewed;
+                //ptrObject->getDimension(length_renewed, width_renewed, height_renewed);
+                //renewBox3d(ptrDetectCurr->box3d, length_renewed, width_renewed, height_renewed);
+                std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
             } else {
                 // 未检出达到一定帧数则从列表中删除该物体
                 detection_cam prev;
@@ -118,7 +146,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 if (prev.miss <= MISSED_FRAME) detectCurr.addItem(prev);
                 else {
                     objectList->delID(ptrDetectPrev->id);
-                    //std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
+                    std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
                 }
             }
             detectPrev.delItem(0);
@@ -137,7 +165,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                     newCar->addItem(tmp);
                 nextID++;
                 objectList->addItem(*newCar);
-                //std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
+                std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
                 delete newCar;
             }
         }
@@ -255,4 +283,23 @@ double IoU(const Box2d prev_box, const Box2d curr_box) {
     } else {
         return 0;
     }
+}
+/*****************************************************
+*功能：更新三维检测框，引入跟踪信息
+*输入：
+*box3d: 将同于更新的三维检测框
+*length: 当前帧的一个检测结果
+*输出：
+*IoU数值
+*****************************************************/
+void renewBox3d(Box3d &box3d, const float length, const float width, const float height) {
+    float theta = box3d.heading;
+    float x2 = box3d.corner_x + length * cos(theta) - width * sin(theta);
+    float y2 = box3d.corner_y + length * sin(theta) + width * cos(theta);
+    box3d.pos.x = (box3d.corner_x + x2)/2;
+    box3d.pos.y = (box3d.corner_y + y2)/2;
+    box3d.pos.z += (height - box3d.height)/2;
+    box3d.length = length;
+    box3d.width = width;
+    box3d.height = height;
 }

@@ -55,12 +55,13 @@ typedef message_filters::Synchronizer<my_sync_policy> Sync;
 /////////////////
 void draw_box(const sensor_msgs::msg::Image::SharedPtr& img_in, 
               sensor_msgs::msg::Image::SharedPtr& img_out,
-              const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr& BBoxes_msg);
+              const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr& BBoxes_msg,
+              const int thickness);
 void rotateZ(geometry_msgs::msg::Point &p, float pos_x, float pos_y, float heading);
 void publish_point_cloud(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pcl_pub, 
                          pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, std_msgs::msg::Header header);
 void publish_3d_box(rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr& box3d_pub, 
-                         const Box3d box3d, const std_msgs::msg::Header header, const int track_id);
+                    const Box3d box3d, const std_msgs::msg::Header header, const int track_id);
 /*****************************************************
 *功能：在图像上绘制二维检测框
 *输入：
@@ -69,11 +70,11 @@ void publish_3d_box(rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPt
 *track_id：追踪得到的物体id，用于确定检测框颜色
 *****************************************************/
 void draw_box(cv_bridge::CvImageConstPtr& cv_ptr, 
-              const Box2d box, int track_id) {
+              const Box2d box, int track_id, const int thickness = 4) {
     int r[8] = {255,255,255,0,0,  0,  0  ,255};
     int g[8] = {0,  255,255,0,255,255,0  ,0};
     int b[8] = {0,  0,  255,0,0,  255,255,255};
-    cv::rectangle(cv_ptr->image, cv::Point(box.xmin,box.ymin), cv::Point(box.xmax,box.ymax), cv::Scalar(b[track_id%8],g[track_id%8],r[track_id%8]), 4);
+    cv::rectangle(cv_ptr->image, cv::Point(box.xmin,box.ymin), cv::Point(box.xmax,box.ymax), cv::Scalar(b[track_id%8],g[track_id%8],r[track_id%8]), thickness);
 }
 /*****************************************************
 *功能：PCL格式点云转换为ros_msg格式点云并发布
@@ -153,7 +154,7 @@ void publish_3d_box(rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPt
                 rotateZ(p, box3d.pos.x, box3d.pos.y, box3d.heading);
                 bbox_marker.points.push_back(p);
             }
-            bbox_marker.lifetime = rclcpp::Duration(2000ms);
+            bbox_marker.lifetime = rclcpp::Duration(5000ms);
             box3d_pub->publish(bbox_marker);
         } else {
             bbox_marker.lifetime = rclcpp::Duration(0,0);

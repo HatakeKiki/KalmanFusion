@@ -20,10 +20,11 @@ protected:
     };
     Node* front;
     Node* rear;
-private:
     size_t items;       // current items number
+private:
     const size_t qsize; // maximum items number
     enum{Q_SIZE = 10};
+    Item* ptrItem;
 public:
     LinkList(const size_t qs = Q_SIZE);
     ~LinkList();
@@ -38,6 +39,7 @@ public:
     bool delItem(const size_t itemNum); // delete item
     Item& getItem(const size_t itemNum);
     bool getItem(const size_t itemNum, Item& item);
+    Item* getPtrItem(const size_t itemNum);
 };
 
 /*****************************************************
@@ -210,7 +212,6 @@ Item& LinkList<Item>::getItem(const size_t itemNum) {
     }
     return check->item;
 }
-
 /*****************************************************
 *功能：返回指定元素
 *输入：
@@ -218,8 +219,8 @@ Item& LinkList<Item>::getItem(const size_t itemNum) {
 ******************************************************/
 template<typename Item>
 bool LinkList<Item>::getItem(const size_t itemNum, Item& item) {
-    if (itemNum > count() || itemNum < 0) {
-        std::cerr << "Elememt number is invalid." << std::endl;
+    if (itemNum >= count() || itemNum < 0) {
+        std::cerr << "Elememt number is invalid when getting an item." << std::endl;
         return false;
     } else {
         Node* check;
@@ -231,6 +232,28 @@ bool LinkList<Item>::getItem(const size_t itemNum, Item& item) {
         }
         item = check->item;
         return true;
+    }
+}
+/*****************************************************
+*功能：返回指定元素
+*输入：
+*itemNum：相对于队伍开始元素的位移，大小在0到items-1之间
+******************************************************/
+template<typename Item>
+Item* LinkList<Item>::getPtrItem(const size_t itemNum) {
+    if (itemNum >= count() || itemNum < 0) {
+        std::cerr << "Elememt number is invalid when getting ptr." << std::endl;
+        return nullptr;
+    } else {
+        Node* check;
+        check = front;
+        if (itemNum > 0) {
+            for (size_t i = 0; i < itemNum; i++) {
+                check = check->next;
+            }
+        }
+        ptrItem = &check->item;
+        return ptrItem;
     }
 }
 #endif
