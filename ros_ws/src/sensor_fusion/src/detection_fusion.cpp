@@ -19,23 +19,53 @@ bool detection_fusion::Is_initialized() {return is_initialized;}
 *BBoxes_msg: 图像二维检测单帧检测框结果
 *in_cloud_: 对应帧原始点云
 *****************************************************/
-void detection_fusion::Initialize(const Matrix34d point_projection_matrix_, 
-                                  LinkList<detection_cam> &DetectFrame, 
+void detection_fusion::Initialize(LinkList<detection_cam> &DetectFrame, 
                                   const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& BBoxes_msg,
                                   const darknet_ros_msgs::msg::BoundingBoxes::ConstPtr& Objs_msg,
-                                  pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_) {
-    point_projection_matrix = point_projection_matrix_;
+                                  const pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud_,
+                                  const Matrix34d P, const Matrix3d R, const Matrix31d T) {
+    // Initialize calibration parameters
+    Matrix4d spatial_trans = Matrix4d::Zero();
+    for(size_t a = 0; a < 3; a++)
+        for(size_t b = 0; b < 3; b++)
+            spatial_trans(a,b) = R(a,b);
+    spatial_trans(0,3) = T(0,0);
+    spatial_trans(1,3) = T(1,0);
+    spatial_trans(2,3) = T(2,0);
+    spatial_trans(3,3) = 1;
+    point_projection_matrix = P*spatial_trans;
+    back_projection_R = R.transpose()*P.block(0,0,3,3).inverse();
+    back_projection_T = R.transpose()*T;
+
+    // Initialize detetction list
     boxes2d = BBoxes_msg->bounding_boxes;
     objs2d = Objs_msg->bounding_boxes;
     inCloud = in_cloud_->makeShared();
     ptrDetectFrame = &DetectFrame;
+    initialize_list();
+
     is_initialized = true;
 }
 /*****************************************************
-*功能：结合二维检测结果，处理点云获得三维检测结果，并加入列表中
+*功能：将2D检测结果分组分层，依次处理前景障碍物与车辆点云
 *****************************************************/
 void detection_fusion::extract_feature() {
-    // sort by distance and add into lists
+    occlusion_table_calc();
+    seperate_into_group();
+    
+    // Process obstacles occluding vehicles first
+    for(size_t i = boxes2d.size(); i < occlusion_table.size(); i++)
+        for(size_t j = 0; j < boxes2d.size(); j++) 
+            if(occlusion_table[i][j]) {obstacle_extract(i-boxes2d.size()); break;}
+
+    // Process vehicles according to groups and distance
+    for(size_t i = 0; i < group_sorted.size(); i++)
+        for(size_t j =0; j < group_sorted[i].size(); j++) vehicle_extract(group_sorted[i][j]);
+}
+/*****************************************************
+*功能：初始化储存检测的两个list
+*****************************************************/
+void detection_fusion::initialize_list() {
     std::sort(boxes2d.begin(), boxes2d.end(), [](const Box2d& box_1, const Box2d& box_2) {return box_1.ymax > box_2.ymax;});
     for(auto it = boxes2d.begin(); it != boxes2d.end(); it++) {
         detection_cam* ptr_det (new detection_cam);
@@ -43,24 +73,33 @@ void detection_fusion::extract_feature() {
         ptrDetectFrame->addItem(*ptr_det);
     }
     for(auto it = objs2d.begin(); it != objs2d.end(); it++) {
-            detection_obj* ptr_det (new detection_obj);
-            ptr_det->box = *it;
-            ptrObjFrame->addItem(*ptr_det);
+        detection_obj* ptr_det (new detection_obj);
+        ptr_det->box = *it;
+        ptrObjFrame->addItem(*ptr_det);
     }
+}
+/*****************************************************
+*功能：计算表示遮挡关系的表格用于后续查询
+*****************************************************/
+void detection_fusion::occlusion_table_calc() {
     // occlusion between vehicles and vehicles
     for(size_t i = 0; i < boxes2d.size(); i++) {
         occlusion_table.push_back(std::vector<bool> {});
-        //int i_ = i;
-        //while(i_) {occlusion_table[i].push_back(0); i_--;}
         for(size_t j = i+1; j < boxes2d.size(); j++)
             occlusion_table[i].push_back(IoU_bool(boxes2d[i], boxes2d[j]));
     }
+
     // occlusion between objects and vehicles
     for(size_t i = 0; i < objs2d.size(); i++) {
         occlusion_table.push_back(std::vector<bool> {});
         for(size_t j = 0; j < boxes2d.size(); j++)
             occlusion_table[boxes2d.size()+i].push_back(IoU_bool(objs2d[i], boxes2d[j]));
     }
+}
+/*****************************************************
+*功能：对车辆检测结果进行分组分层
+*****************************************************/
+void detection_fusion::seperate_into_group() {
     // seperate into groups by occlusion
     std::vector<std::unordered_set<size_t>> group_all;
     size_t all_size = 0;
@@ -79,28 +118,21 @@ void detection_fusion::extract_feature() {
         }
         all_size += group_set.size();
     }
+
     // sort by distance
-    std::vector<std::vector<size_t>> group_sorted;
     for(size_t i = 0; i < group_all.size(); i++) {
         group_sorted.push_back(std::vector<size_t> {});
         for(auto it = group_all[i].begin(); it != group_all[i].end(); it++)
             group_sorted[i].push_back(*it);
         sort(group_sorted[i].begin(), group_sorted[i].end());
     }
-
-    // Process obstacles occluding vehicles first
-    for(size_t i = boxes2d.size(); i < occlusion_table.size(); i++)
-        for(size_t j = 0; j < boxes2d.size(); j++) 
-            if(occlusion_table[i][j]) {obstacle_extract(i-boxes2d.size()); break;}
-    // Process vehicles according to groups and distance
-    for(size_t i = 0; i < group_sorted.size(); i++)
-        for(size_t j =0; j < group_sorted[i].size(); j++) vehicle_extract(group_sorted[i][j]);
 }
 /*****************************************************
 *功能：根据二维结果剪切点云
 *输入：
 *box2d: 二维检测框
 *outCloud: 剪切后的点云
+*fruIndices: 剪切后的点云的检索序号
 *****************************************************/
 void detection_fusion::clip_frustum(const Box2d box2d, pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud, pcl::PointIndices& fruIndices) {
     for (size_t i = 0; i < inCloud->points.size(); i++) {
@@ -128,6 +160,7 @@ void detection_fusion::clip_frustum(const Box2d box2d, pcl::PointCloud<pcl::Poin
 *输入：
 *box2d: 二维检测框
 *outCloud: 剪切后的点云
+*fruIndices: 剪切后的点云的检索序号
 *****************************************************/
 void detection_fusion::clip_frustum_with_overlap(const size_t num, pcl::PointCloud<pcl::PointXYZI>::Ptr &outCloud, pcl::PointIndices& fruIndices) {
     for (size_t i = 0; i < inCloud->points.size(); i++) {
@@ -160,9 +193,8 @@ bool detection_fusion::in_frustum(const double u, const double v, const Box2d bo
 /*****************************************************
 *功能：判断单个点是否在检测框内，考虑重合部分
 *输入：
-*u: 投影后在图像上的u坐标
-*u: 投影后在图像上的v坐标
-*box2d: 二维检测框
+*cloud_indices: 点云的检索序号
+*num: 二维检测框的序号
 *****************************************************/
 bool detection_fusion::in_frustum_overlap(const size_t cloud_indice, const size_t num) {
     Eigen::Matrix<double, 4, 1> point3D;
@@ -197,11 +229,12 @@ bool detection_fusion::in_frustum_overlap(const size_t cloud_indice, const size_
     return false;
 }
 /*****************************************************
-*功能：判断单个点是否在检测框内，考虑重合部分
+*功能：计算具有遮挡关系的2D检测框重叠部分
 *输入：
-*u: 投影后在图像上的u坐标
-*u: 投影后在图像上的v坐标
-*box2d: 二维检测框
+*prev_box: 检测框
+*curr_box: 另一个检测框
+*输出：
+*overlap: 重合部分检测框
 *****************************************************/
 Box2d detection_fusion::overlap_box(const Box2d prev_box, const Box2d curr_box) {
     Box2d overlap;
@@ -298,7 +331,8 @@ bool detection_fusion::eu_cluster(const pcl::PointCloud<pcl::PointXYZI>::Ptr in_
                                   pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster,
                                   pcl::PointIndices& objIndices) {
     // Data containers used
-    pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_with_normals (new pcl::PointCloud<pcl::PointXYZINormal>);
+    pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointXYZINormal>);
+    //pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZI>);
     pcl::search::KdTree<pcl::PointXYZI>::Ptr kd_tree (new pcl::search::KdTree<pcl::PointXYZI>);
     
     // Set up a Normal Estimation class and merge data in cloud_with_normals
@@ -320,44 +354,27 @@ bool detection_fusion::eu_cluster(const pcl::PointCloud<pcl::PointXYZI>::Ptr in_
     cec.segment(*clusters_indices);
 
     // The largest cluster will be output
-    if(clusters_indices->size() != 0) {
-        std::vector<pcl::PointIndices>::const_iterator max_size_indices = clusters_indices->begin();
-        for(std::vector<pcl::PointIndices>::const_iterator it = clusters_indices->begin(); it != clusters_indices->end(); ++it)
-            max_size_indices = (it->indices.size() > max_size_indices->indices.size()) ? it : max_size_indices;
-        for(std::vector<int>::const_iterator pit = max_size_indices->indices.begin(); pit != max_size_indices->indices.end(); ++pit) {
-            cloud_cluster->push_back((*in_cloud)[*pit]);
-            objIndices.indices.push_back(fruIndices.indices[*pit]);
-        }
-        cloud_cluster->width = cloud_cluster->size();
-        cloud_cluster->height = 1;
-        cloud_cluster->is_dense = true;
-        return true;
+    if(clusters_indices->size() == 0) return false;
+    std::vector<pcl::PointIndices>::const_iterator max_size_indices = clusters_indices->begin();
+    for(std::vector<pcl::PointIndices>::const_iterator it = clusters_indices->begin(); it != clusters_indices->end(); ++it)
+        max_size_indices = (it->indices.size() > max_size_indices->indices.size()) ? it : max_size_indices;
+    for(std::vector<int>::const_iterator pit = max_size_indices->indices.begin(); pit != max_size_indices->indices.end(); ++pit) {
+        cloud_cluster->push_back((*in_cloud)[*pit]);
+        objIndices.indices.push_back(fruIndices.indices[*pit]);
     }
-    return false;
+
+    cloud_cluster->width = cloud_cluster->size();
+    cloud_cluster->height = 1;
+    cloud_cluster->is_dense = true;
+    return true;
 }
 /*****************************************************
 *功能：区域增长算法
+*输入：
+*point_a: 一个点云
+*point_b: 另一个点云
+*squared_distance: 欧式距离
 *****************************************************/
-/*
-bool
-customRegionGrowing (const pcl::PointXYZINormal& point_a, const pcl::PointXYZINormal& point_b, float squared_distance)
-{
-  Eigen::Map<const Eigen::Vector3f> point_a_normal = point_a.getNormalVector3fMap (), point_b_normal = point_b.getNormalVector3fMap ();
-  if (squared_distance < 10000)
-  {
-    if (fabs (point_a.intensity - point_b.intensity) < 8.0f)
-      return (true);
-    if (fabs (point_a_normal.dot (point_b_normal)) < 0.02)
-      return (true);
-  }
-  else
-  {
-    if (fabs (point_a.intensity - point_b.intensity) < 3.0f)
-      return (true);
-  }
-  return (false);
-}*/
-
 bool customRegionGrowing(const pcl::PointXYZINormal& point_a, const pcl::PointXYZINormal& point_b, float squared_distance) {
     Eigen::Map<const Eigen::Vector3f> point_a_normal = point_a.getNormalVector3fMap(), point_b_normal = point_b.getNormalVector3fMap();
     if(squared_distance < 4){
@@ -398,6 +415,15 @@ double detection_fusion::Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCarClou
               [](const PointXYZIRT &a, const PointXYZIRT &b) { return a.theta < b.theta; });
     if (Sgroup_.size() > S_GROUP_THRESHOLD) {
         Lproposal(Sgroup_, ptrSgroup);
+
+        // Create the filtering object
+        /*
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+        sor.setInputCloud (ptrSgroup);
+        sor.setMeanK(10);
+        sor.setStddevMulThresh(1);
+        sor.filter (*ptrSgroup);*/
+
         if (ptrSgroup->size() > S_GROUP_THRESHOLD) {
             //for(size_t i = 0; i < 0; i++) {
             //    ptrSgroup->erase(ptrSgroup->end());
@@ -418,74 +444,160 @@ double detection_fusion::Lshape(pcl::PointCloud<pcl::PointXYZI>::Ptr &ptrCarClou
 *carCloud: 语义分割后的车辆点云
 *box3d：用于存储三维检测结果
 *****************************************************/
-void detection_fusion::bounding_box_param(const Matrix51f u, pcl::PointCloud<pcl::PointXYZI>::Ptr& ptrSgroup, 
-                                          pcl::PointCloud<pcl::PointXYZI>::Ptr& carCloud, Box3d& box3d) {
+void detection_fusion::bounding_box_param(const Matrix51f u, const pcl::PointCloud<pcl::PointXYZI>::Ptr ptrSgroup, 
+                                          const pcl::PointCloud<pcl::PointXYZI>::Ptr carCloud, Box3d& box3d, const Box2d box) {
+    Point2D corner_point;
+    Point2D point_1;
+    Point2D point_2;
+    Point2D point_3;
+
     float c1 = u(0,0);
     float c2 = u(1,0);
     float n1 = u(2,0);
     float n2 = u(3,0);
-    // Intersection point
-    float x0 = 0;
-    float y0 = 0;
-    if(n2 != 0 && std::abs(n1/n2) < MIN_SLOPE) {y0 = -c1/n2; x0 = c2/n2;}
-    else if (n1 != 0 && std::abs(n2/n1) < MIN_SLOPE) {y0 = -c2/n1; x0 = -c1/n1;}
-    else if (n1 != 0 && n1 != 0) {
-        x0 = (n2*c2-n1*c1)/(n2*n2 + n1*n1);
-        y0 = -n1/n2*x0-c1/n2;
-    }
-    //std::cout << "u && size: " << u(4,0) << '\t' << ptrSgroup->points.size() << std::endl;
-    // Linewidth in L1
-    float x1 = 0;
-    float y1 = 0;
-    float length_max = 0;
-    for (int i = 0; i < u(4,0); i++) {
-        float x = ptrSgroup->points[i].x;
-        float y = ptrSgroup->points[i].y;
-        point_projection_into_line(x, y, -n1/n2, -c1/n2);
-        float length = sqrt(pow(x-x0,2) + pow(y-y0,2));
-        if (length > length_max) {
-            length_max = length;
-            x1 = x;
-            y1 = y;
-        }
-    }
-    // Linewidth in L2
-    float x3 = 0;
-    float y3 = 0;
-    float width_max = 0;
-    for (size_t i = u(4,0); i < ptrSgroup->points.size(); i++) {
-        float x = ptrSgroup->points[i].x;
-        float y = ptrSgroup->points[i].y;
-        point_projection_into_line(x, y, n2/n1, -c2/n1);
-        float width = sqrt(pow(x-x0,2) + pow(y-y0,2));
-        if (width > width_max) {
-            width_max = width;
-            x3 = x;
-            y3 = y;
-        }
-    }
-
-    float x2 = x3 + (x1 - x0);
-    float y2 = y3 + (y1 - y0);
-
     float z_min = 0;
     float z_max = -2;
-    for (size_t i = 0; i < carCloud->points.size(); i++) {
-        z_min = std::min(z_min, carCloud->points[i].z);
-        if (carCloud->points[i].z < 1) z_max = std::max(z_max, carCloud->points[i].z);
-    }
+    
+    if(box_corner_estimation(u, corner_point)) {
+        if(box_point_estimation(u, corner_point, box, point_1, point_3)){
+            box3d.length = sqrt(pow(corner_point.x-point_1.x,2) + pow(corner_point.y-point_1.y,2));
+            box3d.width = sqrt(pow(corner_point.x-point_3.x,2) + pow(corner_point.y-point_3.y,2));
+        } else {
+            box3d.length = box_point_estimation(-n1/n2, -c1/n2, 0, u(4,0), ptrSgroup, corner_point, point_1);
+            box3d.width = box_point_estimation(n2/n1, -c2/n1, u(4,0), ptrSgroup->points.size(), ptrSgroup, corner_point, point_3);
+        }
+        
+        point_2.x = point_3.x + (point_1.x - corner_point.x);
+        point_2.y = point_3.y + (point_1.y - corner_point.y);
 
-    box3d.height = z_max - z_min;
-    box3d.length = length_max;
-    box3d.width = width_max;
-    //std::cout << "length && width " << box3d.length << '\t' << box3d.width << std::endl;
-    box3d.pos.x = (x0 + x2)/2;
-    box3d.pos.y = (y0 + y2)/2;
-    box3d.pos.z = (z_max - z_min)/2 + z_min;
-    box3d.corner_x = x0;
-    box3d.corner_y = y0;
-    //std::cout << "dimension : " << length_max << '\t' << ptr_det->box3d.width << '\t' << ptr_det->box3d.height << std::endl;
-    box3d.heading = atan((y1-y0)/(x1-x0));
+        for (size_t i = 0; i < carCloud->points.size(); i++) {
+            z_min = std::min(z_min, carCloud->points[i].z);
+            if (carCloud->points[i].z < 1) z_max = std::max(z_max, carCloud->points[i].z);
+        }
+
+        box3d.height = z_max - z_min;
+        box3d.pos.x = (corner_point.x + point_2.x)/2;
+        box3d.pos.y = (corner_point.y + point_2.y)/2;
+        box3d.pos.z = (z_max - z_min)/2 + z_min;
+        box3d.corner_x = corner_point.x;
+        box3d.corner_y = corner_point.y;
+        box3d.heading = atan((corner_point.y - point_1.y)/(corner_point.x - point_1.x));
+    }
+}
+/*****************************************************
+*功能：L-shape拐点计算
+*输入：
+*u: 拟合的L型直线参数
+*corner_point：用于存储拐点坐标信息
+*输出：
+true/false: 是否计算成功
+*****************************************************/
+bool detection_fusion::box_corner_estimation(const Matrix51f u, Point2D &corner_point) {
+    float c1 = u(0,0);
+    float c2 = u(1,0);
+    float n1 = u(2,0);
+    float n2 = u(3,0);
+    // corner point
+    if(n2 != 0 && std::abs(n1/n2) < MIN_SLOPE) {corner_point.y = -c1/n2; corner_point.x = c2/n2;}
+    else if (n1 != 0 && std::abs(n2/n1) < MIN_SLOPE) {corner_point.y = -c2/n1; corner_point.x = -c1/n1;}
+    else if (n1 != 0 && n1 != 0) {
+        corner_point.x = (n2*c2-n1*c1)/(n2*n2 + n1*n1);
+        corner_point.y = -n1/n2*corner_point.x-c1/n2;
+    }else return false;
+    return true;
+}
+/*****************************************************
+*功能：将点投影到直线上求取最大长度作为检测框参数
+*输入：
+*k: 直线的斜率
+*b: 直线的截距
+*cloud_start: 用于投影计算的点云起始点
+*cloud_end: 用于投影计算的点云最末点
+*cloud_in: 用于拟合的点云
+*corner_point：拐点坐标信息
+*point：用于储存端点坐标信息
+*输出：
+length_max: 投影后的最大尺寸
+*****************************************************/
+float detection_fusion::box_point_estimation(const float k, const float b, const size_t cloud_start, const size_t cloud_end,
+                                             const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_in, const Point2D corner_point, Point2D& point) {
+    float length_max = 0;
+    for (size_t i = cloud_start; i < cloud_end; i++) {
+        float x = cloud_in->points[i].x;
+        float y = cloud_in->points[i].y;
+        point_projection_into_line(x, y, k, b);
+        float length = sqrt(pow(x-corner_point.x,2) + pow(y-corner_point.y,2));
+        if (length > length_max) {
+            length_max = length;
+            point.x = x;
+            point.y = y;
+        }
+    }
+    return length_max;
+}
+/*****************************************************
+*功能：计算两条直线的交点
+*输入：
+*u: 拟合的L型直线参数
+*corner_point：用于存储拐点坐标信息
+*box: 二维检测结果
+*point_1: 一个端点
+*point_3: 另一个端点
+*输出：
+true/false: 是否计算成功
+*****************************************************/
+bool detection_fusion::box_point_estimation(const Matrix51f u, const Point2D corner_point, const Box2d box, 
+                                            Point2D &point_1, Point2D &point_3) {
+    float c1 = u(0,0);
+    float c2 = u(1,0);
+    float n1 = u(2,0);
+    float n2 = u(3,0);
+    float slope_min, slope_max, b_min, b_max;
+    uv_projection_into_xy(box.xmin, box.ymin, slope_min, b_min);
+    uv_projection_into_xy(box.xmax, box.ymax, slope_max, b_max);
+    if(slope_min == -n1/n2 || slope_min == n2/n1 || slope_max == -n1/n2 || slope_max == n2/n1) return false;
+    if(line_intersection(slope_min, b_min, -n1/n2, -c1/n2, point_1) && point_1.x >= corner_point.x) {
+        line_intersection(slope_max, b_max, n2/n1, -c2/n1, point_1);
+    }
+    else {
+        line_intersection(slope_max, b_max, -n1/n2, -c1/n2, point_1);
+        line_intersection(slope_min, b_min, n2/n1, -c2/n1, point_3);
+    }
+    return true;
+}
+/*****************************************************
+*功能：计算两条直线的交点
+*输入：
+*k1: 直线L1的斜率
+*b1: 直线L1的截距
+*k2: 直线L2的斜率
+*b2: 直线L2的截距
+*point: 交点
+*输出：
+true/false: 是否计算成功
+*****************************************************/
+bool detection_fusion::line_intersection(const float k1, const float b1, const float k2, const float b2, Point2D &point) {
+    if(k1 == k2) return false;
+    point.x = (b2-b1)/(k1-k2);
+    point.y = k1*point.x+b1;
+    return true;
+}
+/*****************************************************
+*功能：将图像中的像素点投影到雷达坐标系下的鸟瞰图直线
+*输入：
+*u: 像素点坐标u
+*v: 像素点坐标v
+*slope: 用于储存直线的斜率
+*b: 用于储存直线的截距
+*****************************************************/
+void detection_fusion::uv_projection_into_xy(const float u, const float v, float &slope, float &b) {
+    Eigen::Matrix<double, 3, 1> point2D;
+    Eigen::Matrix<double, 3, 1> k;
+    Eigen::Matrix<double, 3, 1> k_max;
+    point2D << u, v, 1;
+    k = back_projection_R*point2D;
+    slope = k(1,0)/k(0,0);
+    b = k(1,0)/k(0,0)*back_projection_T(0,0)- back_projection_T(1,0);
 }
 /*****************************************************
 *功能：提取车辆边框点云，同一角度选择距离最短的一定数量的点云
@@ -679,8 +791,10 @@ void detection_fusion::vehicle_extract(const size_t num) {
         if(eu_cluster(fruCloud, fruIndices, carCloud, carIndices)) {
             double error = Lshape(carCloud, ptrSgroup, u);
             ptr_det->CarCloud = *carCloud;
+            ptr_det->fruCloud = *fruCloud;
+            ptr_det->surCloud = *ptrSgroup;
             ptr_det->indices = carIndices;
-            if (error > 0) bounding_box_param(u, ptrSgroup, carCloud, ptr_det->box3d);
+            if (error > 0) bounding_box_param(u, ptrSgroup, carCloud, ptr_det->box3d, ptr_det->box);
         } else {
             // add far-away objects flag
             ptr_det->far = true;
@@ -729,8 +843,8 @@ void detection_fusion::vehicle_extract(const int num) {
 /*****************************************************
 *功能：求取两个图像二维检测结果IoU数值
 *输入：
-*prev_box: 前一帧的一个检测结果
-*curr_box: 当前帧的一个检测结果
+*prev_box: 遮挡物的检测框
+*curr_box: 被遮挡的检测框
 *输出：
 *IoU数值
 *****************************************************/
@@ -747,14 +861,9 @@ bool IoU_bool(const Box2d prev_box, const Box2d curr_box) {
 
     double len = (prev_length + curr_length)/2 -  std::abs(prev_center_x - curr_center_x);
     double wid = (prev_width + curr_width)/2 -  std::abs(prev_center_y - curr_center_y);
-    if (len > 0 && wid > 0) {
-        //double inter = len * wid;
-        //double union_ = prev_length * prev_width + curr_length * curr_width - inter;
-        //return inter/union_;
-        return true;
-    } else {
-        return false;
-    }
+
+    if(len > IOU_THRESHOLD*curr_length && wid > IOU_THRESHOLD*curr_width) return true;
+    else return false;
 }
 void detection_fusion::add_to_group(const std::vector<std::vector<bool>> occlusion_table, const int start, std::unordered_set<size_t>& group_set) {
     group_set.insert(start);

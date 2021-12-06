@@ -1,5 +1,4 @@
 #include "sensor_fusion/data_utils.hpp"
-#include "sensor_fusion/ExtriParam.hpp"
 #include "sensor_fusion/GroundRemove.h"
 #include "sensor_fusion/Tracking.h"
 #include <rclcpp/rclcpp.hpp>
@@ -17,6 +16,13 @@ private:
     ObjectList* ptrCarList;
     LinkList<detection_cam>* ptrDetectFrame;
     size_t callback_count;
+    struct calibration {
+        Matrix34d P;
+        Matrix3d R;
+        Matrix31d T;
+    };
+    calibration calib;
+
     message_filters::Subscriber<sensor_msgs::msg::PointCloud2> pcl_sub;
     message_filters::Subscriber<sensor_msgs::msg::Image> img_sub;
     message_filters::Subscriber<darknet_ros_msgs::msg::BoundingBoxes> det_sub;
@@ -38,6 +44,7 @@ private:
                        //const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg,
                        const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr det_msg,
                        const darknet_ros_msgs::msg::BoundingBoxes::SharedPtr obj_msg);
+    bool get_calibration();
 };
 /*****************************************************
 *功能：传感器融合析构函数，初始化参数
@@ -46,6 +53,9 @@ SensorFusion::SensorFusion() : Node("sensor_fusion"),
                                ptrCarList(new ObjectList(MAX_OBJECT_IN_LIST)),
                                ptrDetectFrame(new LinkList<detection_cam>(MAX_DETECT_PER_FRAME)),
                                callback_count(0) {
+    // Initial calibration parameters
+    get_calibration();
+
     // Initialize publisher
     img_pub = this->create_publisher<sensor_msgs::msg::Image>("processed_img",10);
     pcl_pub_car = this->create_publisher<sensor_msgs::msg::PointCloud2>("processed_pcl",10);
@@ -70,6 +80,68 @@ SensorFusion::SensorFusion() : Node("sensor_fusion"),
     sync_.reset(new Sync(my_sync_policy(10), pcl_sub, img_sub,/* imu_sub, gps_sub, */det_sub, obj_sub));
     sync_->registerCallback(&SensorFusion::sync_callback, this);
 }
+bool SensorFusion::get_calibration() {
+    string input_file_name = "/home/kiki/data/kitti/calibration.txt";
+    std::ifstream input_file(input_file_name.c_str(), std::ifstream::in);
+    if(!input_file.is_open()) {std::cout << "Failed to open file. "  << std::endl; return false;}
+    // Reading parameters
+    string line;
+    for (int i = 0; i < 3; i++) {
+        std::stringstream iss;
+        string data_type;
+        getline(input_file, line);
+        iss << line;
+        iss >> data_type;
+        switch(data_type[0]) {
+            case 'P' :
+                for (int a = 0; a < 3; a++)
+                    for (int b = 0; b < 4; b++)
+                    iss >> calib.P(a,b);
+                break;
+            case 'R' :
+                for (int a = 0; a < 3; a++)
+                    for (int b = 0; b < 3; b++)
+                        iss >> calib.R(a,b);
+                break;
+            case 'T' :
+                iss >> calib.T[0];
+                iss >> calib.T[1];
+                iss >> calib.T[2];
+                break;
+            default : 
+                std::cout << "Invalid parameter." << std::endl;
+                return false;
+        }
+    }
+    input_file.close();
+    return true;
+    /*
+    std::stringstream iss;
+
+    getline(input_file, line);
+    iss << line;
+
+    std::cout << line << std::endl;
+
+    getline(input_file, line);
+    iss << line;
+    for (int a = 0; a < 3; a++)
+        for (int b = 0; b < 3; b++)
+            iss >> calib.R(a,b);
+    std::cout << line << std::endl;
+
+    getline(input_file, line);
+    iss << line;
+    iss >> calib.T[0];
+    iss >> calib.T[1];
+    iss >> calib.T[2];
+    std::cout << line << std::endl;
+
+    std::cout << calib.P << std::endl << std::endl;
+    std::cout << calib.R << std::endl << std::endl;
+    std::cout << calib.T << std::endl << std::endl;
+*/
+}
 /*****************************************************
 *功能：回调函数，获得一帧多传感器数据后回调进行融合算法
 *输入：
@@ -87,10 +159,6 @@ void SensorFusion::sync_callback(const sensor_msgs::msg::PointCloud2::SharedPtr 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZI>);
     pcl::PointCloud<pcl::PointXYZI>::Ptr segCloud (new pcl::PointCloud<pcl::PointXYZI>);
 
-    // Extrinsic Params from Camera02 to Velodyne 
-    ProjectMatrix proMatrix(2);
-    Matrix34d pointTrans = proMatrix.getPMatrix();
-
     // Remove the points belonging to ground
     pcl::fromROSMsg(*cloud_msg, *cloud);
     GroundRemove groundOffCloud(cloud);
@@ -99,35 +167,43 @@ void SensorFusion::sync_callback(const sensor_msgs::msg::PointCloud2::SharedPtr 
     LinkList<detection_cam> detectPrev = *ptrDetectFrame;
     ptrDetectFrame->Reset();
     detection_fusion detection;
-    detection.Initialize(pointTrans, *ptrDetectFrame, det_msg, obj_msg, groundOffCloud.ptrCloud);
+    detection.Initialize(*ptrDetectFrame, det_msg, obj_msg, groundOffCloud.ptrCloud, calib.P, calib.R, calib.T);
     if (detection.Is_initialized()) detection.extract_feature();
 
     // Tracking algorithm
     Hungaria(detectPrev, *ptrDetectFrame, ptrCarList);
+
 
     // Store segmented point cloud into txt for later analysis
     time_t now = time(0);
     tm *ltm = localtime(&now);
     char dir [100];
     std::string directory ="";
-    sprintf(dir, "/home/kiki/KalmanFusion/ros_ws/src/sensor_fusion/%.4d_%.2d_%.1d/", 1900 + ltm->tm_year, 1 + ltm->tm_mon, ltm->tm_mday);
+    sprintf(dir, "/home/kiki/project/KalmanFusion/ros_ws/src/sensor_fusion/%.4d_%.2d_%.1d/", 1900 + ltm->tm_year, 1 + ltm->tm_mon, ltm->tm_mday);
     directory = dir;
     for(size_t j = 0; j < ptrDetectFrame->count(); j++) {
         detection_cam* ptr_detect = ptrDetectFrame->getPtrItem(j);
         if (!ptr_detect->miss) {
-            string filename = directory + "point_cloud/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
-            string filename_ = directory + "boxes/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
+            string fruCloud_filename = directory + "frustum_cloud/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
+            string surCloud_filename = directory + "surface_cloud/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
+            string carCloud_filename = directory + "vehicle_cloud/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
+            string filename = directory + "boxes/" + std::to_string(callback_count) + "/" + std::to_string(j) + ".txt";
+            std::ofstream fru_fout(fruCloud_filename.c_str(), std::ios::app);
+            std::ofstream sur_fout(surCloud_filename.c_str(), std::ios::app);
+            std::ofstream car_fout(carCloud_filename.c_str(), std::ios::app);
             std::ofstream fout(filename.c_str(), std::ios::app);
-            std::ofstream fout_(filename_.c_str(), std::ios::app);
-            fout_ << (ptr_detect->box.xmax+ptr_detect->box.xmin)/2 << '\t' << (ptr_detect->box.ymax+ptr_detect->box.ymin)/2 << '\t' << ptr_detect->box.xmax-ptr_detect->box.xmin << '\t' << ptr_detect->box.ymax-ptr_detect->box.ymin << std::endl;
-            for(auto it = ptr_detect->CarCloud.points.begin(); it != ptr_detect->CarCloud.points.end(); it++) {
-                fout << it->x << '\t' << it->y << '\t' << it->z << std::endl;
-            }
+            fout << (ptr_detect->box.xmax+ptr_detect->box.xmin)/2 << '\t' << (ptr_detect->box.ymax+ptr_detect->box.ymin)/2 << '\t' << ptr_detect->box.xmax-ptr_detect->box.xmin << '\t' << ptr_detect->box.ymax-ptr_detect->box.ymin << std::endl;
+            for(auto it = ptr_detect->fruCloud.points.begin(); it != ptr_detect->fruCloud.points.end(); it++)
+                fru_fout << it->x << '\t' << it->y << '\t' << it->z << std::endl;
+            for(auto it = ptr_detect->surCloud.points.begin(); it != ptr_detect->surCloud.points.end(); it++)
+                sur_fout << it->x << '\t' << it->y << '\t' << it->z << std::endl;
+            for(auto it = ptr_detect->CarCloud.points.begin(); it != ptr_detect->CarCloud.points.end(); it++)
+                car_fout << it->x << '\t' << it->y << '\t' << it->z << std::endl;
+            fru_fout.close();
+            sur_fout.close();
+            car_fout.close();
             fout.close();
-            fout_.close();
         }
-        
-        
     }
 
     // Visualization of detection and tracking results
@@ -157,4 +233,3 @@ int main(int argc, char **argv) {
     rclcpp::shutdown();
     return 0;
 }
-

@@ -137,7 +137,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 //float length_renewed, width_renewed, height_renewed;
                 //ptrObject->getDimension(length_renewed, width_renewed, height_renewed);
                 //renewBox3d(ptrDetectCurr->box3d, length_renewed, width_renewed, height_renewed);
-                std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
+                //std::cout << "New track added to: " << ptrDetectPrev->id << '\t' << maxIoU  << '\t' << flag << std::endl;
             } else {
                 // 未检出达到一定帧数则从列表中删除该物体
                 detection_cam prev;
@@ -146,7 +146,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                 if (prev.miss <= MISSED_FRAME) detectCurr.addItem(prev);
                 else {
                     objectList->delID(ptrDetectPrev->id);
-                    std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
+                    //std::cout << "Object deleted with ID: " << ptrDetectPrev->id << std::endl;
                 }
             }
             detectPrev.delItem(0);
@@ -165,7 +165,7 @@ void Hungaria(LinkList<detection_cam> detectPrev, LinkList<detection_cam>& detec
                     newCar->addItem(tmp);
                 nextID++;
                 objectList->addItem(*newCar);
-                std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
+                //std::cout << "New object created with ID: " << newCar->getTrackID() << std::endl;
                 delete newCar;
             }
         }

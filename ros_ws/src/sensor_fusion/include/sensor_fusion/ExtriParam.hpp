@@ -43,8 +43,13 @@ private:
         int S[2];
         Matrix3d R;
         Matrix34d P;
+        Matrix3d P_;
     };
     struct calibTrans {
+        Matrix3d R;
+        Matrix31d T;
+    };
+    struct backProjection {
         Matrix3d R;
         Matrix31d T;
     };
@@ -56,7 +61,10 @@ private:
     calibCamRect calib_cam_rect;
     calibCamRect calib_cam_rect00;
     calibTrans calib_velo;
-    Matrix34d pointTrans;
+    backProjection back_projection;
+    Matrix34d projection_uv_to_xyz;
+    Matrix3d R;
+    Matrix31d T;
 
 public:
     ProjectMatrix(int cam_index);
@@ -65,7 +73,10 @@ public:
     void paramInput(calibCamRaw &calib);
     void paramInput(calibCamRect &calib);
     void paramInput(calibTrans &calib);
-    Matrix34d getPMatrix();
+    void getProjectionMatrix(Matrix34d &P);
+    void getBackProjectionMatrix(Matrix3d &R_, Matrix31d &T_);
+    void getR(Matrix3d &R_);
+    void getT(Matrix31d &T_);
 };
 
 
@@ -97,12 +108,16 @@ ProjectMatrix::ProjectMatrix(int cam_index) : camIndex(cam_index) {
         for (int b = 0; b < 3; b++)
 	    R_cam00(a,b) = calib_cam_rect00.R(a,b);
     R_cam00(3,3) = 1;
-    pointTrans = calib_cam_rect.P * R_cam00 * T_velo;
+    projection_uv_to_xyz = calib_cam_rect.P * R_cam00 * T_velo;
+    R = calib_cam_rect00.R*calib_velo.R;
+    T = calib_cam_rect00.R*calib_velo.T;
+    back_projection.R = (calib_cam_rect00.R*calib_velo.R).transpose()*calib_cam_rect00.P_.inverse();
+    back_projection.T = (calib_cam_rect00.R*calib_velo.R).transpose()*(calib_cam_rect00.R*calib_velo.T);
     
-    //std::cout << calib_cam_rect.P << std::endl << std::endl;
-    //std::cout << R_cam00 << std::endl << std::endl;
-    //std::cout << T_velo << std::endl << std::endl;
-    //std::cout << pointTrans << std::endl;
+    std::cout << calib_cam_rect.P << std::endl << std::endl;
+    std::cout << calib_cam_rect00.R*calib_velo.R << std::endl;
+    std::cout << calib_cam_rect00.R*calib_velo.T << std::endl;
+    
 }
 
 ProjectMatrix::~ProjectMatrix() {}
@@ -216,8 +231,10 @@ void ProjectMatrix::paramInput(calibCamRect &calib) {
                 break;
             case 'P' :
                 for (int a = 0; a < 3; a++)
-                    for (int b = 0; b < 4; b++) 
+                    for (int b = 0; b < 4; b++){ 
                         iss >> calib.P(a, b);
+                        if(b < 3) calib.P_(a,b) = calib.P(a, b);
+                        }
                 break;
             default : 
                 std::cout << "Invalid parameter." << std::endl;
@@ -266,7 +283,17 @@ void ProjectMatrix::paramInput(calibTrans &calib) {
 /*****************************************************
 *功能：获取投影矩阵
 *****************************************************/
-Matrix34d ProjectMatrix::getPMatrix() {
-    return pointTrans;
+void ProjectMatrix::getProjectionMatrix(Matrix34d &P) {
+    P = projection_uv_to_xyz;
+}
+void ProjectMatrix::getBackProjectionMatrix(Matrix3d &R_, Matrix31d &T_) {
+    R_ = back_projection.R;
+    T_ = back_projection.T;
+}
+void ProjectMatrix::getR(Matrix3d &R_) {
+    R_ = R;
+}
+void ProjectMatrix::getT(Matrix31d &T_) {
+    T_ = T;
 }
 #endif
