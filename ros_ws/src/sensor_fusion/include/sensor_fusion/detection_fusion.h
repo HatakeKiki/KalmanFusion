@@ -41,7 +41,6 @@
 // Calculation of 2d-box
 #define IMG_LENGTH 1242
 #define IMG_WIDTH 375
-#define IMG_EXPANSION_COEEFICIENT 1.1
 
 #define IOU_THRESHOLD 0.01
 
@@ -51,7 +50,7 @@
 #define S_GROUP_REFINED_THRESHOLD 5
 // L-shape Fitting Proposal Params
 #define ANGLE_RESO 0.06
-#define POINT_NUM 1
+#define POINT_NUM 5
 #define MIN_SLOPE 0.0000001
 typedef std::string string;
 typedef Eigen::Matrix<double, 3, 4> Matrix34d;
